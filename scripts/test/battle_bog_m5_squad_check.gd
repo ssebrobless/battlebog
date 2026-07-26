@@ -153,9 +153,11 @@ func _check_farm_proactive(arena: Node, failures: Array[String]) -> bool:
 	# The frontline fallback can share a direction with the wave, so assert
 	# the contested-guard itself: clear before an enemy arrives, contested
 	# once one is standing on the farm point.
-	var uncontested: bool = not arena._farm_point_contested(inactive, minion.global_position)
-	arena.bots[0].global_position = minion.global_position
-	var respects_danger: bool = uncontested and arena._farm_point_contested(inactive, minion.global_position)
+	var danger_point: Vector2 = inactive.global_position + Vector2.RIGHT * 120.0
+	var uncontested: bool = not arena._farm_point_contested(inactive, danger_point)
+	arena.bots[0].global_position = danger_point
+	arena._tick_team_vision(0.2)
+	var respects_danger: bool = uncontested and arena._farm_point_contested(inactive, danger_point)
 
 	arena.unregister_entity(minion)
 	minion.queue_free()

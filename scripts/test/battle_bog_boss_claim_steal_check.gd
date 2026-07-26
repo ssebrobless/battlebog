@@ -78,6 +78,8 @@ func _run() -> void:
 		failures.append("claimed_team should be blue; got %d" % int(zone.get("claimed_team", -1)))
 	if not _has_objective_event(arena, "claimed", "habitat stock gained"):
 		failures.append("owner claim should emit a public claimed objective event; feed=%s" % str(arena.kill_feed))
+	if int(arena.team_stats[0].get("boss_claims", 0)) != 1:
+		failures.append("owner claim should increment Blue boss_claims exactly once; stats=%s" % str(arena.team_stats[0]))
 
 	# Fresh red boss stolen by blue -> stolen (enemy).
 	_activate_and_down_boss(arena, 1)
@@ -89,6 +91,12 @@ func _run() -> void:
 		failures.append("stolen claimed_team should be blue (thief); got %d" % int(red_zone.get("claimed_team", -1)))
 	if not _has_objective_event(arena, "stolen", "habitat stock gained"):
 		failures.append("enemy steal should emit a public stolen objective event; feed=%s" % str(arena.kill_feed))
+	if int(arena.team_stats[0].get("boss_steals", 0)) != 1:
+		failures.append("enemy steal should increment Blue boss_steals exactly once; stats=%s" % str(arena.team_stats[0]))
+	var summary: Dictionary = arena.get_match_summary_data("Blue", "test")
+	var blue_summary: Dictionary = summary.get("teams", {}).get("blue", {})
+	if int(blue_summary.get("boss_claims", 0)) != 1 or int(blue_summary.get("boss_steals", 0)) != 1:
+		failures.append("match summary should retain claim/steal telemetry; blue=%s" % str(blue_summary))
 
 	print("boss_claim_steal failures=%d" % failures.size())
 	for failure in failures:

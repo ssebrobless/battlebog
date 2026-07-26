@@ -34,7 +34,7 @@ func _run() -> void:
 		return
 
 	_check_day_and_spawns(arena, failures)
-	_check_1v1_hunger_pace(arena, failures)
+	_check_solo_pvai_hunger_parity(arena, failures)
 	_check_diet_gates(arena, failures)
 	_check_attack_harvest(arena, failures)
 	_check_deposit_cue(arena, failures)
@@ -67,17 +67,17 @@ func _check_day_and_spawns(arena: Node, failures: Array[String]) -> void:
 			arena.food_sources.size()
 		])
 
-func _check_1v1_hunger_pace(arena: Node, failures: Array[String]) -> void:
+func _check_solo_pvai_hunger_parity(arena: Node, failures: Array[String]) -> void:
 	var actor: Node = arena.player
 	actor.hunger = 100.0
 	actor.hunger_satiated = false
 	actor._tick_hunger(1.0)
-	var expected := 100.0 - 100.0 / 90.0
+	var expected := 100.0 - 100.0 / 105.0
 	var pace_ok := arena.has_method("get_hunger_full_to_empty_sec") \
-		and absf(float(arena.get_hunger_full_to_empty_sec()) - 90.0) < 0.001 \
+		and absf(float(arena.get_hunger_full_to_empty_sec()) - 105.0) < 0.001 \
 		and absf(float(actor.hunger) - expected) < 0.01
 	if not pace_ok:
-		failures.append("1v1 should use faster M8 hunger pace; pace=%.2f hunger=%.2f expected=%.2f" % [
+		failures.append("solo PvAI should match canonical competitive hunger pace; pace=%.2f hunger=%.2f expected=%.2f" % [
 			float(arena.get_hunger_full_to_empty_sec()) if arena.has_method("get_hunger_full_to_empty_sec") else -1.0,
 			float(actor.hunger),
 			expected

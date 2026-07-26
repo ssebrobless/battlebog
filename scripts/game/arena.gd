@@ -18,6 +18,7 @@ const LocalInputScript := preload("res://scripts/ui/local_input.gd")
 const BotBrainScript := preload("res://scripts/ai/bot_brain.gd")
 const MinimapScript := preload("res://scripts/ui/minimap.gd")
 const SquadHudScript := preload("res://scripts/ui/squad_hud.gd")
+const MatchResultPanelScript := preload("res://scripts/ui/match_result_panel.gd")
 const MudHutScript := preload("res://scripts/game/mud_hut.gd")
 const InputFrameScript := preload("res://scripts/sim/input_frame.gd")
 const TerrainLayerScript := preload("res://scripts/game/terrain_layer.gd")
@@ -40,6 +41,10 @@ const TeratornisCenterBossScript := preload("res://scripts/game/bosses/teratorni
 const BossCatalog := preload("res://scripts/game/bosses/boss_catalog.gd")
 const BreedingActorScript := preload("res://scripts/game/breeding_actor.gd")
 const VisualGrammar := preload("res://scripts/visual/visual_grammar.gd")
+const MatchRulesScript := preload("res://scripts/game/match_rules.gd")
+const MatchSlotRegistryScript := preload("res://scripts/game/match_slot_registry.gd")
+const LegalWorldViewScript := preload("res://scripts/ai/legal_world_view.gd")
+const TeamDirectorScript := preload("res://scripts/ai/team_director.gd")
 
 const PLAYABLE_CREATURE_POOL := ["snapping_turtle", "chorus_frog", "mink", "beaver", "otter", "leech", "owl", "duck", "bullfrog", "cane_toad", "crayfish", "bog_turtle", "water_shrew", "newt", "great_blue_heron", "kingfisher", "water_snake", "alligator", "wolf_spider", "firefly", "mosquito_swarm"]
 const SQUAD_COMMAND_FARM := "farm"
@@ -47,6 +52,13 @@ const SQUAD_COMMAND_FOLLOW := "follow"
 const SQUAD_COMMAND_AGGRO := "aggro"
 const SQUAD_COMMAND_SECONDS := 10.0
 const SQUAD_SWITCH_FEEDBACK_SECONDS := 0.85
+const SWITCH_RELEASE_BUTTONS := InputFrameScript.BUTTON_PRIMARY \
+	| InputFrameScript.BUTTON_ABILITY_Q \
+	| InputFrameScript.BUTTON_ABILITY_E \
+	| InputFrameScript.BUTTON_HUT_DEFEND \
+	| InputFrameScript.BUTTON_HABITAT_DEPOSIT \
+	| InputFrameScript.BUTTON_CONTEXT_ACTION \
+	| InputFrameScript.BUTTON_FLIGHT_TOGGLE
 const SQUAD_FOLLOW_RADIUS := 5.0 * SimConstants.UNIT_PX
 const SQUAD_DANGER_HEALTH_RATIO := 0.28
 const SQUAD_DANGER_RANGE := 360.0
@@ -114,7 +126,7 @@ const BREEDING_BUFF_LABEL_BY_FAMILY := {
 }
 const MATCH_SUMMARY_SCHEMA := "battle_bog_match_summary_v1"
 const MATCH_LOG_DIR := "user://battle_bog_match_logs"
-const ONE_V_ONE_HUNGER_FULL_TO_EMPTY_SEC := 90.0
+const ECONOMY_EVENT_LIMIT := 128
 const DEBUG_HURTBOX_OVERLAY := false
 
 var entities: Array[Node] = []
@@ -133,6 +145,7 @@ var player: Node
 var wave_timer := 2.0
 var elapsed := 0.0
 var match_over := false
+var match_result: Dictionary = {}
 var telegraphs: Array[Dictionary] = []
 var vfx_events: Array[Dictionary] = []
 var dams: Array[Node] = []
@@ -166,6 +179,8 @@ var day_index := 1
 var day_timer := 0.0
 var ui_refresh_accumulator := 0.0
 var camera: Camera2D = null
+var match_seed := 0
+var simulation_tick := 0
 
 const CAMERA_LEAD_DEADZONE := 70.0
 const CAMERA_LEAD_FRACTION := 0.32
@@ -173,11 +188,17 @@ const CAMERA_LEAD_MAX := 132.0
 const WORLD_OVERLAY_REDRAW_INTERVAL := 0.05
 var actor_stats: Dictionary = {}
 var team_stats := {
-	BLUE: {"kills": 0, "deaths": 0, "core_damage": 0.0, "hut_damage": 0.0, "huts_destroyed": 0, "stock_losses": 0, "deposits": 0, "breeds_completed": 0, "breeds_denied": 0, "wildlife_defeats": 0},
-	RED: {"kills": 0, "deaths": 0, "core_damage": 0.0, "hut_damage": 0.0, "huts_destroyed": 0, "stock_losses": 0, "deposits": 0, "breeds_completed": 0, "breeds_denied": 0, "wildlife_defeats": 0}
+	BLUE: {"kills": 0, "deaths": 0, "core_damage": 0.0, "hut_damage": 0.0, "huts_destroyed": 0, "stock_losses": 0, "deposits": 0, "breeds_completed": 0, "breeds_denied": 0, "wildlife_defeats": 0, "boss_claims": 0, "boss_steals": 0, "center_claims": 0},
+	RED: {"kills": 0, "deaths": 0, "core_damage": 0.0, "hut_damage": 0.0, "huts_destroyed": 0, "stock_losses": 0, "deposits": 0, "breeds_completed": 0, "breeds_denied": 0, "wildlife_defeats": 0, "boss_claims": 0, "boss_steals": 0, "center_claims": 0}
 }
 var kill_feed: Array[Dictionary] = []
 var match_summary_log_path := ""
+var economy_events: Array[Dictionary] = []
+var economy_event_sequence := 0
+var economy_event_counts: Dictionary = {}
+var economy_first_event_sec: Dictionary = {}
+var economy_team_event_counts := {"blue": {}, "red": {}}
+var economy_team_first_event_sec := {"blue": {}, "red": {}}
 var terrain_map: RefCounted = TerrainMapScript.new()
 var arena_rect := ARENA_RECT
 var cover_rects: Array = []
@@ -202,14 +223,31 @@ var kill_feed_label: Label
 var end_summary_label: Label
 var help_label: Label
 var squad_hud: Control = null
+var match_result_panel: Control = null
 var local_input: Node = LocalInputScript.new()
 var bot_brain: RefCounted = BotBrainScript.new()
 var match_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var stock_manager: RefCounted = StockManagerScript.new()
+var slot_registry: RefCounted = MatchSlotRegistryScript.new()
 var world_overlay_redraw_accumulator := 0.0
+var legacy_mode_snapshot := ""
+var match_rules: Dictionary = {}
+var control_topology: Dictionary = {}
+var last_input_routing_state: Dictionary = {}
+var switch_release_mask := 0
+var switch_action_neutral_ticks: Dictionary = {}
+var team_world_view: RefCounted = LegalWorldViewScript.new()
+var team_directors := {
+	BLUE: TeamDirectorScript.new(),
+	RED: TeamDirectorScript.new()
+}
+var team_orders := {BLUE: {}, RED: {}}
+var team_director_timer := 0.0
+var team_director_epoch := 0
 
 func _ready() -> void:
-	_configure_mode()
+	if not _configure_mode():
+		return
 	var terrain_layer = TerrainLayerScript.new()
 	terrain_layer.name = "TerrainLayer"
 	add_child(terrain_layer)
@@ -220,10 +258,36 @@ func _ready() -> void:
 	water_layer.setup(terrain_map)
 	_build_ui()
 	_setup_crosshair_cursor()
-	_spawn_match()
+	if not _spawn_match():
+		set_process(false)
+		set_physics_process(false)
 
-func _configure_mode() -> void:
-	terrain_map.configure(GameConfig.selected_mode)
+func _configure_mode() -> bool:
+	legacy_mode_snapshot = String(GameConfig.selected_mode)
+	if legacy_mode_snapshot == "Hero Lab":
+		match_rules = MatchRulesScript.competitive_3v3()
+		control_topology = {}
+	else:
+		var match_adapter := MatchRulesScript.for_legacy_mode(legacy_mode_snapshot)
+		if match_adapter.is_empty():
+			push_error("Unknown Battle Bog mode: %s" % legacy_mode_snapshot)
+			get_tree().quit(2)
+			return false
+		match_rules = match_adapter.get("rules", {}).duplicate(true)
+		control_topology = match_adapter.get("control_topology", {}).duplicate(true)
+	var rule_errors := MatchRulesScript.validate_rules(match_rules)
+	if not rule_errors.is_empty():
+		push_error("Invalid Battle Bog rules: %s" % ", ".join(rule_errors))
+		get_tree().quit(2)
+		return false
+	if _is_all_bots_mode():
+		var simulation_errors: Array[String] = GameConfig.get_simulation_request_errors()
+		if not simulation_errors.is_empty():
+			push_error("Invalid All Bots simulation request: %s" % "; ".join(simulation_errors))
+			get_tree().quit(2)
+			return false
+
+	terrain_map.configure(match_rules)
 	arena_rect = terrain_map.arena_rect
 	cover_rects = terrain_map.get_cover_rects()
 	wave_minion_offsets = terrain_map.wave_minion_offsets
@@ -234,22 +298,24 @@ func _configure_mode() -> void:
 	team_spawns = terrain_map.team_spawns
 	bot_spawns = terrain_map.bot_spawns
 
-	if GameConfig.selected_mode == "1v1":
-		wave_interval = 18.0
+	if String(control_topology.get("id", "")) == MatchRulesScript.TOPOLOGY_SOLO_SWAP:
 		camera_zoom = Vector2(2.6, 2.6)
-	elif GameConfig.selected_mode == "Hero Lab":
+	elif legacy_mode_snapshot == "Hero Lab":
 		wave_interval = 18.0
 		camera_zoom = Vector2(2.8, 2.8)
 	else:
-		wave_interval = WAVE_INTERVAL
 		camera_zoom = Vector2(2.2, 2.2)
-	hunger_full_to_empty_sec = ONE_V_ONE_HUNGER_FULL_TO_EMPTY_SEC if GameConfig.selected_mode == "1v1" else CreatureScript.HUNGER_FULL_TO_EMPTY_SEC
+	if legacy_mode_snapshot != "Hero Lab":
+		wave_interval = float(match_rules.get("wave_interval_sec", WAVE_INTERVAL))
+	hunger_full_to_empty_sec = float(match_rules.get("hunger_full_to_empty_sec", CreatureScript.HUNGER_FULL_TO_EMPTY_SEC))
 
 	wave_timer = 2.0
+	return true
 
 func _physics_process(delta: float) -> void:
 	if match_over:
 		return
+	simulation_tick += 1
 	var perf_start := Time.get_ticks_usec() if PerfStats.enabled else 0
 
 	hut_defend_hint_timer = maxf(hut_defend_hint_timer - delta, 0.0)
@@ -263,8 +329,18 @@ func _physics_process(delta: float) -> void:
 	_tick_squad_command(delta)
 	_tick_day_cycle(delta)
 	_tick_breeding(delta)
-	if _is_1v1_trio_mode():
-		_feed_player_squad_inputs()
+	if PerfStats.enabled:
+		PerfStats.add("arena_maintenance", int(Time.get_ticks_usec() - perf_start))
+	var perf_routing_start := Time.get_ticks_usec() if PerfStats.enabled else 0
+	if _is_competitive_mode():
+		var perf_director_start := Time.get_ticks_usec() if PerfStats.enabled else 0
+		_tick_team_directors(delta)
+		if PerfStats.enabled:
+			PerfStats.add("team_directors", int(Time.get_ticks_usec() - perf_director_start))
+		var perf_registered_input_start := Time.get_ticks_usec() if PerfStats.enabled else 0
+		_feed_registered_inputs()
+		if PerfStats.enabled:
+			PerfStats.add("registered_inputs", int(Time.get_ticks_usec() - perf_registered_input_start))
 	elif player != null and is_instance_valid(player):
 		var player_frame: Resource = local_input.build_frame(player.get_global_mouse_position())
 		player.set_input_frame(player_frame)
@@ -272,31 +348,41 @@ func _physics_process(delta: float) -> void:
 			hut_defend_hint_timer = 2.5
 			add_kill_feed("Hut defense assignment needs a reserve habitat upgrade")
 	var perf_bots_start := Time.get_ticks_usec() if PerfStats.enabled else 0
-	for bot in bots:
-		if bot != null and is_instance_valid(bot) and bot.is_alive():
-			bot.set_input_frame(bot_brain.build_frame(bot))
+	if not _is_competitive_mode():
+		for bot in bots:
+			if bot != null and is_instance_valid(bot) and bot.is_alive():
+				bot.set_input_frame(bot_brain.build_frame(bot))
 	if PerfStats.enabled:
 		PerfStats.add("bot_frames", int(Time.get_ticks_usec() - perf_bots_start))
+		PerfStats.add("arena_routing", int(Time.get_ticks_usec() - perf_routing_start))
 
+	var perf_world_start := Time.get_ticks_usec() if PerfStats.enabled else 0
 	elapsed += delta
 	_tick_center_boss_schedule()
 	_tick_animal_zones(delta)
 	_tick_boss_terrain_events(delta)
 	_tick_team_vision(delta)
-	_apply_world_vision_masking()
+	if not _is_all_bots_mode():
+		_apply_world_vision_masking()
 	wave_timer -= delta
 	_tick_telegraphs(delta)
-	_tick_kill_feed(delta)
+	if not _is_all_bots_mode():
+		_tick_kill_feed(delta)
 	if wave_timer <= 0.0:
 		spawn_wave()
 		wave_timer = wave_interval
+	if PerfStats.enabled:
+		PerfStats.add("arena_world", int(Time.get_ticks_usec() - perf_world_start))
 
-	ui_refresh_accumulator += delta
-	if ui_refresh_accumulator >= 0.2:
-		ui_refresh_accumulator = 0.0
-		_update_ui()
+	if not _is_all_bots_mode():
+		ui_refresh_accumulator += delta
+		if ui_refresh_accumulator >= 0.2:
+			ui_refresh_accumulator = 0.0
+			_update_ui()
+	var perf_separation_start := Time.get_ticks_usec() if PerfStats.enabled else 0
 	resolve_body_separation()
 	if PerfStats.enabled:
+		PerfStats.add("arena_separation", int(Time.get_ticks_usec() - perf_separation_start))
 		PerfStats.add("arena_tick", int(Time.get_ticks_usec() - perf_start))
 
 func _process(delta: float) -> void:
@@ -449,11 +535,30 @@ func _build_ui() -> void:
 	squad_hud.offset_bottom = -18.0
 	canvas.add_child(squad_hud)
 
-func _spawn_match() -> void:
+	match_result_panel = MatchResultPanelScript.new()
+	match_result_panel.name = "MatchResultPanel"
+	match_result_panel.set("arena", self)
+	canvas.add_child(match_result_panel)
+
+func _spawn_match() -> bool:
 	_seed_match_rng()
+	simulation_tick = 0
 	_reset_match_telemetry()
 	_clear_breeding_actors()
 	stock_manager.reset()
+	slot_registry.reset(int(match_rules.get("team_size", 3)))
+	team_orders = {BLUE: {}, RED: {}}
+	team_director_timer = 0.0
+	team_director_epoch = 0
+	for director in team_directors.values():
+		director.reset_team(BLUE)
+		director.reset_team(RED)
+	if _is_competitive_mode() and not stock_manager.configure_required_slots(
+		int(match_rules.get("team_size", 3)),
+		int(match_rules.get("initial_stocks_per_slot", StockManagerScript.MAX_STOCKS))
+	):
+		push_error("Could not configure competitive stock slots: %s" % str(stock_manager.validation_errors()))
+		return false
 	_reset_breeding_buffs()
 	day_index = 1
 	day_timer = 0.0
@@ -484,14 +589,29 @@ func _spawn_match() -> void:
 			huts.append(hut)
 			register_entity(hut)
 
-	if _is_1v1_trio_mode():
-		_spawn_player_squad()
+	if _is_all_bots_mode():
+		if not _spawn_all_bot_squads():
+			return false
+	elif _is_1v1_trio_mode():
+		if not _spawn_player_squad():
+			return false
 	else:
 		player = CreatureScript.new()
 		add_child(player)
 		player.setup(self, BLUE, get_team_spawn(BLUE), GameConfig.selected_creature_id, terrain_map)
+		if _is_competitive_mode() and not _register_competitive_slot(
+			BLUE,
+			0,
+			GameConfig.selected_creature_id,
+			player,
+			MatchSlotRegistryScript.CONTROLLER_LOCAL_HUMAN
+		):
+			return false
 		register_entity(player)
-	_spawn_bots_for_mode()
+	if not _spawn_bots_for_mode():
+		return false
+	if _is_competitive_mode() and not _seal_competitive_slots():
+		return false
 
 	camera = Camera2D.new()
 	camera.zoom = camera_zoom
@@ -501,32 +621,190 @@ func _spawn_match() -> void:
 	_refresh_food_sources()
 	spawn_wave()
 	_update_ui()
+	return true
 
-func _spawn_bots_for_mode() -> void:
-	if GameConfig.selected_mode == "3v3":
+func _spawn_bots_for_mode() -> bool:
+	if _is_all_bots_mode():
+		return true
+	if legacy_mode_snapshot == "3v3":
 		var ally_pool := _shuffled_creature_pool(PLAYABLE_CREATURE_POOL)
 		ally_pool.erase(GameConfig.selected_creature_id)
 		var enemy_pool := _shuffled_creature_pool(PLAYABLE_CREATURE_POOL)
-		_spawn_bot(BLUE, ally_pool[0], get_bot_spawn(BLUE, "Blue Guard"), "Blue Guard")
-		_spawn_bot(BLUE, ally_pool[1], get_bot_spawn(BLUE, "Blue Ward"), "Blue Ward")
-		_spawn_bot(RED, enemy_pool[0], get_bot_spawn(RED, "Red Blade"), "Red Blade")
-		_spawn_bot(RED, enemy_pool[1], get_bot_spawn(RED, "Red Scope"), "Red Scope")
-		_spawn_bot(RED, enemy_pool[2], get_bot_spawn(RED, "Red Chorus"), "Red Chorus")
+		var blue_guard := _spawn_bot(BLUE, ally_pool[0], get_bot_spawn(BLUE, "Blue Guard"), "Blue Guard")
+		var blue_ward := _spawn_bot(BLUE, ally_pool[1], get_bot_spawn(BLUE, "Blue Ward"), "Blue Ward")
+		var red_blade := _spawn_bot(RED, enemy_pool[0], get_bot_spawn(RED, "Red Blade"), "Red Blade")
+		var red_scope := _spawn_bot(RED, enemy_pool[1], get_bot_spawn(RED, "Red Scope"), "Red Scope")
+		var red_chorus := _spawn_bot(RED, enemy_pool[2], get_bot_spawn(RED, "Red Chorus"), "Red Chorus")
+		if not _register_competitive_slot(BLUE, 1, ally_pool[0], blue_guard, MatchSlotRegistryScript.CONTROLLER_AI):
+			return false
+		if not _register_competitive_slot(BLUE, 2, ally_pool[1], blue_ward, MatchSlotRegistryScript.CONTROLLER_AI):
+			return false
+		if not _register_competitive_slot(RED, 0, enemy_pool[0], red_blade, MatchSlotRegistryScript.CONTROLLER_AI):
+			return false
+		if not _register_competitive_slot(RED, 1, enemy_pool[1], red_scope, MatchSlotRegistryScript.CONTROLLER_AI):
+			return false
+		if not _register_competitive_slot(RED, 2, enemy_pool[2], red_chorus, MatchSlotRegistryScript.CONTROLLER_AI):
+			return false
 	elif _is_1v1_trio_mode():
-		var enemy_pool := _shuffled_creature_pool(PLAYABLE_CREATURE_POOL)
+		var configured_red: Array[String] = (
+			GameConfig.get_selected_red_squad_ids()
+			if GameConfig.has_method("get_selected_red_squad_ids")
+			else []
+		)
+		var enemy_pool: Array = (
+			configured_red
+			if configured_red.size() == 3
+			else _shuffled_creature_pool(PLAYABLE_CREATURE_POOL)
+		)
 		var red_spawn := get_team_spawn(RED)
 		var red_names := ["Red Claw", "Red Reed", "Red Fang"]
 		for i in 3:
 			var bot := _spawn_bot(RED, enemy_pool[i], red_spawn + _squad_spawn_offset(i, RED), red_names[i])
-			stock_manager.register_slot(RED, i, enemy_pool[i], bot)
+			if not _register_competitive_slot(RED, i, enemy_pool[i], bot, MatchSlotRegistryScript.CONTROLLER_AI):
+				return false
 	else:
 		_spawn_bot(RED, PLAYABLE_CREATURE_POOL[match_rng.randi_range(0, PLAYABLE_CREATURE_POOL.size() - 1)], get_bot_spawn(RED, "Red Rival"), "Red Rival")
+	return true
 
 func _is_1v1_trio_mode() -> bool:
-	return GameConfig.selected_mode == "1v1"
+	return String(control_topology.get("id", "")) == MatchRulesScript.TOPOLOGY_SOLO_SWAP
+
+func _is_all_bots_mode() -> bool:
+	return String(control_topology.get("id", "")) == MatchRulesScript.TOPOLOGY_ALL_BOTS
+
+func _is_competitive_mode() -> bool:
+	return String(match_rules.get("id", "")) == MatchRulesScript.RULESET_COMPETITIVE_3V3 and not control_topology.is_empty()
+
+func _register_competitive_slot(team: int, slot_index: int, creature_id: String, actor: Node, controller_kind: String) -> bool:
+	var controller_id := "local:0" if controller_kind == MatchSlotRegistryScript.CONTROLLER_LOCAL_HUMAN else "ai:%d:%d" % [team, slot_index]
+	if not slot_registry.register_slot(team, slot_index, creature_id, actor):
+		push_error("Slot registration failed for %d:%d: %s" % [team, slot_index, str(slot_registry.validation_errors())])
+		return false
+	var owner_id := "local:0" if team == BLUE and _is_1v1_trio_mode() else "team:%d" % team
+	if not slot_registry.assign_owner(team, slot_index, owner_id):
+		push_error("Owner registration failed for %d:%d: %s" % [team, slot_index, str(slot_registry.validation_errors())])
+		return false
+	if not slot_registry.assign_ai_fallback(team, slot_index, "ai:%d:%d" % [team, slot_index]):
+		push_error("AI fallback registration failed for %d:%d: %s" % [team, slot_index, str(slot_registry.validation_errors())])
+		return false
+	if not slot_registry.assign_controller(team, slot_index, controller_kind, controller_id):
+		push_error("Controller registration failed for %d:%d: %s" % [team, slot_index, str(slot_registry.validation_errors())])
+		return false
+	if not stock_manager.register_slot(team, slot_index, creature_id, actor):
+		push_error("Stock registration failed for %d:%d: %s" % [team, slot_index, str(stock_manager.validation_errors())])
+		return false
+	return true
+
+func _seal_competitive_slots() -> bool:
+	var slot_errors: Array[String] = slot_registry.seal()
+	var stock_errors: Array[String] = stock_manager.seal_registration()
+	var topology_errors := _controller_plan_errors()
+	if not slot_errors.is_empty() or not stock_errors.is_empty() or not topology_errors.is_empty():
+		push_error("Competitive slot seal failed: slots=%s stocks=%s topology=%s" % [str(slot_errors), str(stock_errors), str(topology_errors)])
+		return false
+	return true
+
+func _controller_plan_errors() -> Array[String]:
+	var errors: Array[String] = []
+	var plan: Array[Dictionary] = slot_registry.get_controller_plan()
+	var expected_total := int(match_rules.get("team_size", 3)) * 2
+	var local_count := 0
+	var ai_count := 0
+	for assignment: Dictionary in plan:
+		match String(assignment.get("kind", "")):
+			MatchSlotRegistryScript.CONTROLLER_LOCAL_HUMAN:
+				local_count += 1
+			MatchSlotRegistryScript.CONTROLLER_AI:
+				ai_count += 1
+	if plan.size() != expected_total:
+		errors.append("expected %d controller assignments, got %d" % [expected_total, plan.size()])
+	if local_count != int(control_topology.get("active_human_slots", -1)):
+		errors.append("local controller count does not match topology")
+	if ai_count != int(control_topology.get("ai_controlled_slots", -1)):
+		errors.append("AI controller count does not match topology")
+	return errors
+
+func get_match_slot_state() -> Dictionary:
+	return {
+		"sealed": slot_registry.is_sealed(),
+		"stock_sealed": stock_manager.is_registration_sealed(),
+		"blue": slot_registry.get_team_slots(BLUE),
+		"red": slot_registry.get_team_slots(RED),
+		"controllers": slot_registry.get_controller_plan()
+	}
+
+func _tick_team_directors(delta: float) -> void:
+	if not slot_registry.is_sealed():
+		return
+	team_director_timer = maxf(team_director_timer - delta, 0.0)
+	if team_director_timer > 0.0:
+		return
+	team_director_timer = TeamDirectorScript.UPDATE_INTERVAL_SEC
+	team_director_epoch += 1
+	for team in [BLUE, RED]:
+		var team_id := int(team)
+		var snapshot: Dictionary = team_world_view.team_snapshot(
+			self,
+			team_id,
+			slot_registry,
+			team_director_epoch,
+			_team_player_override(team_id)
+		)
+		team_orders[team_id] = team_directors[team_id].update(snapshot)
+
+func _team_player_override(team: int) -> Dictionary:
+	if team != BLUE or not _is_1v1_trio_mode() or squad_command == SQUAD_COMMAND_FARM:
+		return {"kind": "none"}
+	var player_slot: Dictionary = slot_registry.get_slot_for_actor(player)
+	var override := {
+		"kind": squad_command,
+		"follow_slot_id": String(player_slot.get("slot_id", "")),
+		"aggro_slot_id": "",
+		"destination": player.global_position if player != null and is_instance_valid(player) else Vector2.ZERO,
+		"hold_radius": SQUAD_FOLLOW_RADIUS
+	}
+	if squad_command == SQUAD_COMMAND_AGGRO \
+		and squad_aggro_target != null \
+		and is_instance_valid(squad_aggro_target):
+		var target_slot: Dictionary = slot_registry.get_slot_for_actor(squad_aggro_target)
+		override["aggro_slot_id"] = String(target_slot.get("slot_id", ""))
+	return override
+
+func get_team_order_state(team := -1) -> Dictionary:
+	if team == BLUE or team == RED:
+		return team_orders.get(team, {}).duplicate(true)
+	return {
+		BLUE: team_orders.get(BLUE, {}).duplicate(true),
+		RED: team_orders.get(RED, {}).duplicate(true),
+		"epoch": team_director_epoch
+	}
+
+func get_actor_for_slot_id(slot_id: String) -> Node:
+	for team in [BLUE, RED]:
+		for slot: Dictionary in slot_registry.get_team_slots(int(team)):
+			if String(slot.get("slot_id", "")) == slot_id:
+				var actor: Node = slot.get("actor", null)
+				return actor if actor != null and is_instance_valid(actor) else null
+	return null
+
+func get_live_objective_actor(objective_id: String) -> Node:
+	for encounter: Node in wildlife_encounters:
+		if encounter == null or not is_instance_valid(encounter):
+			continue
+		if String(encounter.get("zone_id")) != objective_id:
+			continue
+		if not encounter.has_method("is_boss_actor") or not encounter.is_boss_actor():
+			continue
+		if encounter.has_method("is_alive") and not encounter.is_alive():
+			continue
+		return encounter
+	return null
 
 func get_hunger_full_to_empty_sec() -> float:
 	return hunger_full_to_empty_sec
+
+func get_team_habitat_rect(team: int) -> Rect2:
+	return terrain_map.get_team_habitat_rect(team)
 
 func get_squad_follow_radius() -> float:
 	return SQUAD_FOLLOW_RADIUS
@@ -654,7 +932,7 @@ func _side_boss_objective_brief(team: int) -> Dictionary:
 	var interval := maxi(int(state.get("interval", BOSS_BREED_INTERVAL)), 1)
 	var objective_state := String(state.get("objective_state", "dormant"))
 	var active := bool(state.get("active", false))
-	var meter_locked := active or objective_state == "claimable" or objective_state == "contesting"
+	var meter_locked := is_side_boss_meter_locked(team)
 	var current_family := String(state.get("family", ""))
 	var next_family := String(state.get("next_family", ""))
 	var family := current_family if not current_family.is_empty() else next_family
@@ -897,7 +1175,7 @@ func on_breeding_actor_defeated(actor: Node, source_actor: Node = null) -> void:
 	add_kill_feed("%s denied %s %s breeding" % [attacker_name, defender_team, creature_id.replace("_", " ")])
 
 func is_breeding_actor_targetable(actor: Node) -> bool:
-	return actor != null and is_instance_valid(actor) and can_damage_core(int(actor.get("team")))
+	return actor != null and is_instance_valid(actor) and is_habitat_exposed(int(actor.get("team")))
 
 func can_damage_breeding_actor(actor: Node, source_actor: Node) -> bool:
 	if actor == null or source_actor == null or not is_instance_valid(actor) or not is_instance_valid(source_actor):
@@ -907,7 +1185,7 @@ func can_damage_breeding_actor(actor: Node, source_actor: Node) -> bool:
 	var defending_team := int(actor.get("team"))
 	if int(source_actor.get("team")) == defending_team:
 		return false
-	if not can_damage_core(defending_team):
+	if not is_habitat_exposed(defending_team):
 		return false
 	var habitat: Rect2 = terrain_map.get_team_habitat_rect(defending_team)
 	return habitat.size.x > 0.0 and habitat.size.y > 0.0 and habitat.has_point(source_actor.global_position)
@@ -916,7 +1194,7 @@ func show_breeding_actor_shielded(actor: Node, _source_actor: Node = null) -> vo
 	if actor == null or not is_instance_valid(actor) or hut_defend_hint_timer > 0.0:
 		return
 	hut_defend_hint_timer = 0.8
-	var text := "BREEDING SHIELDED" if not can_damage_core(int(actor.get("team"))) else "ENTER HABITAT TO RAID"
+	var text := "BREEDING SHIELDED" if not is_habitat_exposed(int(actor.get("team"))) else "ENTER HABITAT TO RAID"
 	telegraphs.append({
 		"type": "float_text",
 		"position": actor.global_position + Vector2(-30.0, -36.0),
@@ -942,6 +1220,11 @@ func _complete_breeding_cue(cue: Dictionary) -> void:
 	var result := _add_breeding_buff_stack(team, family)
 	var cue_actor: Node = cue.get("actor", null)
 	_record_team_actor_stat(team, "breeds_completed", 1, cue_actor)
+	_record_economy_event(cue_actor, "breed_completed", {
+		"team": team,
+		"creature_id": creature_id,
+		"family": family
+	})
 	_record_bred_animal(team)
 	if bool(result.get("accepted", false)):
 		add_kill_feed("%s breeding complete: %s +%d%% %s" % [
@@ -990,6 +1273,15 @@ func _team_has_active_side_boss(team: int) -> bool:
 			return true
 	return false
 
+func is_side_boss_meter_locked(team: int) -> bool:
+	if team != BLUE and team != RED:
+		return false
+	var zone := _team_boss_zone(team)
+	if zone.is_empty():
+		return false
+	return bool(zone.get("active", false)) \
+		or String(zone.get("objective_state", "dormant")) in ["active", "claimable", "contesting"]
+
 func _team_boss_zone(team: int) -> Dictionary:
 	var side := _team_side_string(team)
 	for zone: Dictionary in animal_zone_states:
@@ -1022,7 +1314,7 @@ func _record_bred_animal(team: int, _actor: Node = null) -> void:
 	bred_animal_count += 1
 	if not (team == BLUE or team == RED):
 		return
-	if _team_has_active_side_boss(team):
+	if is_side_boss_meter_locked(team):
 		return
 	side_boss_meter[team] = int(side_boss_meter[team]) + 1
 	if int(side_boss_meter[team]) >= BOSS_BREED_INTERVAL:
@@ -1407,10 +1699,12 @@ func _resolve_boss_claim(zone: Dictionary, team: int) -> void:
 		# Center bosses have no owner: whoever holds the point claims a combat reward, and
 		# they grant NO directed disruption (the map-wide fight already hit both teams).
 		zone["objective_state"] = "claimed"
+		_record_team_actor_stat(team, "center_claims", 1)
 		_grant_center_reward(team, family)
 		return
 	var is_owner := team == _zone_owner_team(zone)
 	zone["objective_state"] = "claimed" if is_owner else "stolen"
+	_record_team_actor_stat(team, "boss_claims" if is_owner else "boss_steals", 1)
 	_grant_boss_reward(team, family, is_owner)
 	add_objective_feed(
 		"%s %s the %s boss - habitat stock gained" % [_team_name(team), "claimed" if is_owner else "stole", family.capitalize()],
@@ -1715,6 +2009,9 @@ func _build_trio_hud_row(slot: Dictionary) -> Dictionary:
 	var creature_id := String(slot.get("creature_id", ""))
 	var name := creature_id
 	var hp_ratio := 0.0
+	var hunger_ratio := 0.0
+	var satiated := false
+	var hp_known := team == BLUE
 	if actor != null and is_instance_valid(actor):
 		var data_value = actor.get("creature_data")
 		if typeof(data_value) == TYPE_DICTIONARY:
@@ -1724,6 +2021,10 @@ func _build_trio_hud_row(slot: Dictionary) -> Dictionary:
 			name = actor.get_actor_name()
 		if actor.has_method("is_alive") and actor.is_alive():
 			hp_ratio = _health_ratio(actor)
+			hp_known = team == BLUE or is_entity_visible_to_team(actor, BLUE)
+			if team == BLUE:
+				hunger_ratio = clampf(float(actor.get("hunger")) / 100.0, 0.0, 1.0) if actor.get("hunger") != null else 0.0
+				satiated = actor.has_method("is_satiated") and actor.is_satiated()
 	var state := String(slot.get("state", StockManagerScript.STATE_FIELD))
 	if state == StockManagerScript.STATE_FIELD and actor != null and is_instance_valid(actor) and actor.has_method("is_alive") and not actor.is_alive():
 		state = StockManagerScript.STATE_RESPAWNING
@@ -1734,12 +2035,16 @@ func _build_trio_hud_row(slot: Dictionary) -> Dictionary:
 		"name": name,
 		"active": team == BLUE and actor != null and actor == player,
 		"hp_ratio": hp_ratio,
+		"hp_known": hp_known,
+		"hunger_ratio": hunger_ratio,
+		"satiated": satiated,
+		"deposit_ready": team == BLUE and satiated and state == StockManagerScript.STATE_FIELD,
 		"stocks": int(slot.get("stocks_remaining", StockManagerScript.MAX_STOCKS)),
 		"max_stocks": int(slot.get("max_stocks", StockManagerScript.MAX_STOCKS)),
 		"state": state
 	}
 
-func _spawn_player_squad() -> void:
+func _spawn_player_squad() -> bool:
 	player_squad.clear()
 	active_squad_index = 0
 	squad_command = SQUAD_COMMAND_FARM
@@ -1757,9 +2062,47 @@ func _spawn_player_squad() -> void:
 		member.setup(self, BLUE, blue_spawn + _squad_spawn_offset(i, BLUE), squad_ids[i], terrain_map)
 		member.actor_name = "Blue %d %s" % [i + 1, member.creature_data.get("name", member.creature_id)]
 		player_squad.append(member)
+		var controller_kind := MatchSlotRegistryScript.CONTROLLER_LOCAL_HUMAN if i == active_squad_index else MatchSlotRegistryScript.CONTROLLER_AI
+		if not _register_competitive_slot(BLUE, i, squad_ids[i], member, controller_kind):
+			return false
 		register_entity(member)
-		stock_manager.register_slot(BLUE, i, squad_ids[i], member)
 	player = player_squad[active_squad_index]
+	return true
+
+func _spawn_all_bot_squads() -> bool:
+	player_squad.clear()
+	player = null
+	var blue_ids: Array[String] = GameConfig.get_selected_squad_ids()
+	var configured_red: Array[String] = GameConfig.get_selected_red_squad_ids()
+	if blue_ids.size() != 3 or configured_red.size() != 3:
+		push_error("All Bots requires exact three-creature rosters for both teams")
+		return false
+	var red_ids: Array = configured_red
+	var team_rosters := {BLUE: blue_ids, RED: red_ids}
+	var team_names := {
+		BLUE: ["Blue Root", "Blue Reed", "Blue Tide"],
+		RED: ["Red Claw", "Red Reed", "Red Fang"]
+	}
+	for team_value in [BLUE, RED]:
+		var team := int(team_value)
+		var spawn := get_team_spawn(team)
+		var roster: Array = team_rosters[team]
+		for index in 3:
+			var bot := _spawn_bot(
+				team,
+				String(roster[index]),
+				spawn + _squad_spawn_offset(index, team),
+				String(team_names[team][index])
+			)
+			if not _register_competitive_slot(
+				team,
+				index,
+				String(roster[index]),
+				bot,
+				MatchSlotRegistryScript.CONTROLLER_AI
+			):
+				return false
+	return true
 
 func _squad_spawn_offset(index: int, team: int) -> Vector2:
 	var y_offsets := [-42.0, 0.0, 42.0]
@@ -1777,7 +2120,16 @@ func _attach_camera_to_player() -> void:
 	camera.make_current()
 
 func _seed_match_rng() -> void:
-	match_rng.seed = int(("%s:%s" % [GameConfig.selected_mode, GameConfig.selected_creature_id]).hash())
+	var ruleset_id := String(match_rules.get("id", MatchRulesScript.RULESET_COMPETITIVE_3V3))
+	match_seed = (
+		int(GameConfig.simulation_seed)
+		if int(GameConfig.simulation_seed) >= 0
+		else int(("%s:%s" % [ruleset_id, GameConfig.selected_creature_id]).hash())
+	)
+	match_rng.seed = match_seed
+
+func get_simulation_tick() -> int:
+	return simulation_tick
 
 func _shuffled_creature_pool(source_pool: Array) -> Array:
 	var shuffled := source_pool.duplicate()
@@ -1796,6 +2148,116 @@ func _spawn_bot(team: int, creature_id: String, spawn_position: Vector2, bot_nam
 	bots.append(bot)
 	register_entity(bot)
 	return bot
+
+func _feed_registered_inputs() -> void:
+	if not slot_registry.is_sealed():
+		last_input_routing_state = {"sealed": false, "assignments": 0, "routed": 0, "duplicates": 0}
+		return
+	if _is_1v1_trio_mode():
+		_select_live_active_if_needed()
+	var routed_frames: Dictionary = {}
+	var routed_actors: Dictionary = {}
+	var routed_controller_kinds: Dictionary = {}
+	var duplicate_count := 0
+	var unsupported_count := 0
+	var local_count := 0
+	var ai_count := 0
+	for assignment: Dictionary in slot_registry.get_controller_plan():
+		var team := int(assignment.get("team", -1))
+		var slot_index := int(assignment.get("slot_index", -1))
+		var slot: Dictionary = slot_registry.get_slot(team, slot_index)
+		var actor: Node = slot.get("actor", null)
+		if actor == null or not is_instance_valid(actor):
+			continue
+		var frame: Resource = InputFrameScript.new()
+		var controller_kind := String(assignment.get("kind", ""))
+		if actor.has_method("is_alive") and actor.is_alive():
+			match controller_kind:
+				MatchSlotRegistryScript.CONTROLLER_LOCAL_HUMAN:
+					local_count += 1
+					frame = local_input.build_frame(actor.get_global_mouse_position())
+					_apply_switch_release_gate(frame)
+				MatchSlotRegistryScript.CONTROLLER_AI:
+					ai_count += 1
+					var allow_autonomous_deposit := not (_is_1v1_trio_mode() and team == BLUE)
+					var slot_id := String(slot.get("slot_id", ""))
+					var order: Dictionary = team_orders.get(team, {}).get(slot_id, {})
+					frame = bot_brain.build_frame(actor, allow_autonomous_deposit, order)
+				_:
+					unsupported_count += 1
+					push_error("Unsupported live controller kind: %s" % controller_kind)
+		_apply_switch_action_neutral_gate(actor, frame)
+		var actor_key := str(actor.get_instance_id())
+		if routed_frames.has(actor_key):
+			duplicate_count += 1
+			push_error("Actor received more than one input provider: %s" % actor_key)
+			continue
+		routed_frames[actor_key] = frame
+		routed_actors[actor_key] = actor
+		routed_controller_kinds[actor_key] = controller_kind
+	var routing_valid := duplicate_count == 0 and unsupported_count == 0
+	var transition_consumed: Array = []
+	var committed_action_count := 0
+	for actor_key in routed_frames:
+		var actor: Node = routed_actors.get(actor_key, null)
+		if actor != null and is_instance_valid(actor):
+			var frame: Resource = routed_frames[actor_key] if routing_valid else InputFrameScript.new()
+			var controller_kind := String(routed_controller_kinds.get(actor_key, ""))
+			var actor_alive: bool = actor.has_method("is_alive") and actor.is_alive()
+			if routing_valid and actor_alive:
+				if frame.is_pressed(InputFrameScript.BUTTON_HABITAT_DEPOSIT):
+					if controller_kind == MatchSlotRegistryScript.CONTROLLER_LOCAL_HUMAN:
+						if _try_manual_habitat_deposit(actor):
+							committed_action_count += 1
+					elif controller_kind == MatchSlotRegistryScript.CONTROLLER_AI:
+						if _try_autonomous_habitat_deposit(actor):
+							committed_action_count += 1
+				if controller_kind == MatchSlotRegistryScript.CONTROLLER_LOCAL_HUMAN \
+					and frame.is_pressed(InputFrameScript.BUTTON_HUT_DEFEND) \
+					and hut_defend_hint_timer <= 0.0 \
+					and _player_near_own_hut():
+					hut_defend_hint_timer = 2.5
+					add_kill_feed("Hut defense assignment needs a reserve habitat upgrade")
+					committed_action_count += 1
+			actor.set_input_frame(frame)
+			if routing_valid and actor_alive and switch_action_neutral_ticks.has(actor.get_instance_id()):
+				transition_consumed.append(actor.get_instance_id())
+	_advance_switch_action_neutral_ticks(transition_consumed)
+	last_input_routing_state = {
+		"sealed": true,
+		"assignments": slot_registry.get_controller_plan().size(),
+		"routed": routed_frames.size(),
+		"duplicates": duplicate_count,
+		"unsupported": unsupported_count,
+		"routing_valid": routing_valid,
+		"committed_actions": committed_action_count,
+		"local": local_count,
+		"ai": ai_count,
+		"actor_ids": routed_frames.keys()
+	}
+
+func get_input_routing_state() -> Dictionary:
+	return last_input_routing_state.duplicate(true)
+
+func _apply_switch_release_gate(frame: Resource) -> void:
+	if frame == null or switch_release_mask == 0:
+		return
+	switch_release_mask &= int(frame.buttons)
+	frame.buttons &= ~switch_release_mask
+
+func _apply_switch_action_neutral_gate(actor: Node, frame: Resource) -> void:
+	if actor == null or frame == null:
+		return
+	if int(switch_action_neutral_ticks.get(actor.get_instance_id(), 0)) > 0:
+		frame.buttons = 0
+
+func _advance_switch_action_neutral_ticks(consumed_actor_ids: Array) -> void:
+	for actor_id in consumed_actor_ids:
+		var remaining := int(switch_action_neutral_ticks.get(actor_id, 0)) - 1
+		if remaining <= 0:
+			switch_action_neutral_ticks.erase(actor_id)
+		else:
+			switch_action_neutral_ticks[actor_id] = remaining
 
 func _feed_player_squad_inputs() -> void:
 	_select_live_active_if_needed()
@@ -1836,16 +2298,16 @@ func _build_squad_ai_frame(actor: Node) -> Resource:
 		SQUAD_COMMAND_FOLLOW:
 			return _follow_active_frame(actor)
 		SQUAD_COMMAND_AGGRO:
-			var target := squad_aggro_target if _valid_target(squad_aggro_target) else _closest_enemy_creature(actor, SQUAD_DANGER_RANGE * 1.8)
+			var target := squad_aggro_target if _autonomous_can_perceive(actor, squad_aggro_target) else _closest_enemy_creature(actor, SQUAD_DANGER_RANGE * 1.8)
 			if target != null:
 				return _direct_target_frame(actor, target, true)
 			return _follow_active_frame(actor)
 		_:
-			return _safe_farm_frame(actor)
+			return bot_brain.build_frame(actor)
 
 func _follow_active_frame(actor: Node) -> Resource:
 	if player == null or not is_instance_valid(player):
-		return _safe_farm_frame(actor)
+		return bot_brain.build_frame(actor, false)
 	var distance: float = actor.global_position.distance_to(player.global_position)
 	if distance <= SQUAD_FOLLOW_RADIUS:
 		var frame := InputFrameScript.new()
@@ -1887,6 +2349,8 @@ func _farm_point_contested(actor: Node, point: Vector2) -> bool:
 		if int(entity.get("team")) == actor.team:
 			continue
 		if entity.has_method("is_alive") and not entity.is_alive():
+			continue
+		if not _autonomous_can_perceive(actor, entity):
 			continue
 		if entity.global_position.distance_to(point) < SQUAD_DANGER_RANGE:
 			return true
@@ -1935,7 +2399,7 @@ func _closest_enemy_creature(actor: Node, max_distance: float) -> Node:
 			continue
 		if not entity.has_method("is_scored_actor") or not entity.is_scored_actor():
 			continue
-		if entity.has_method("is_stealthed") and entity.is_stealthed():
+		if not _autonomous_can_perceive(actor, entity):
 			continue
 		var distance: float = actor.global_position.distance_to(entity.global_position)
 		if distance < closest_distance:
@@ -1949,11 +2413,22 @@ func _closest_enemy_minion(actor: Node, max_distance: float) -> Node:
 	for minion in minions:
 		if not _valid_target(minion) or minion.team == actor.team:
 			continue
+		if not _autonomous_can_perceive(actor, minion):
+			continue
 		var distance: float = actor.global_position.distance_to(minion.global_position)
 		if distance < closest_distance:
 			closest = minion
 			closest_distance = distance
 	return closest
+
+func _autonomous_can_perceive(actor: Node, target: Variant) -> bool:
+	if not _valid_target(target):
+		return false
+	if target.get("team") == null or int(target.get("team")) == int(actor.team):
+		return true
+	if has_method("is_entity_visible_to_team"):
+		return is_entity_visible_to_team(target, int(actor.team))
+	return not (target.has_method("is_stealthed") and target.is_stealthed())
 
 func _valid_target(target: Variant) -> bool:
 	if target == null or not is_instance_valid(target):
@@ -2007,10 +2482,34 @@ func _set_active_squad_index(index: int, announce := true) -> void:
 		return
 	var next_player: Node = player_squad[index]
 	if next_player == null or not is_instance_valid(next_player) or not next_player.is_alive():
-		_set_squad_switch_feedback("respawning", index)
+		var unavailable_state := "respawning"
+		if next_player != null and is_instance_valid(next_player) and stock_manager.has_actor(next_player):
+			var stock_slot: Dictionary = stock_manager.get_slot_for_actor(next_player)
+			if String(stock_slot.get("state", "")) == StockManagerScript.STATE_EXHAUSTED:
+				unavailable_state = "exhausted"
+		_set_squad_switch_feedback(unavailable_state, index)
 		if announce:
-			add_kill_feed("Squad slot %d is respawning" % (index + 1))
+			add_kill_feed(
+				"Squad slot %d is out of stocks" % (index + 1)
+				if unavailable_state == "exhausted"
+				else "Squad slot %d is respawning" % (index + 1)
+			)
 		return
+	var previous_index := active_squad_index
+	if slot_registry.is_sealed() and previous_index != index:
+		var held_frame: Resource = local_input.build_frame(next_player.get_global_mouse_position())
+		if not slot_registry.transfer_controller(BLUE, previous_index, index):
+			_set_squad_switch_feedback("invalid", index)
+			push_error("Could not transfer local controller: %s" % str(slot_registry.validation_errors()))
+			return
+		switch_release_mask = int(held_frame.buttons) & SWITCH_RELEASE_BUTTONS
+		var previous_player: Node = player_squad[previous_index]
+		if previous_player != null and is_instance_valid(previous_player):
+			switch_action_neutral_ticks[previous_player.get_instance_id()] = 1
+			bot_brain.reset_actor(previous_player)
+		switch_action_neutral_ticks[next_player.get_instance_id()] = 1
+		bot_brain.reset_actor(next_player)
+		team_director_timer = 0.0
 	active_squad_index = index
 	player = next_player
 	_set_squad_switch_feedback("active", index)
@@ -2025,6 +2524,7 @@ func _issue_squad_follow(announce := true) -> void:
 	squad_command = SQUAD_COMMAND_FOLLOW
 	squad_command_timer = SQUAD_COMMAND_SECONDS
 	squad_aggro_target = null
+	team_director_timer = 0.0
 	if announce:
 		add_kill_feed("Squad regrouping on active creature")
 		if player != null and is_instance_valid(player):
@@ -2036,6 +2536,7 @@ func _issue_squad_farm(announce := true) -> void:
 	squad_command = SQUAD_COMMAND_FARM
 	squad_command_timer = 0.0
 	squad_aggro_target = null
+	team_director_timer = 0.0
 	if announce:
 		add_kill_feed("Squad farming safely")
 
@@ -2048,6 +2549,7 @@ func _issue_squad_aggro(target: Node) -> void:
 		return
 	squad_command = SQUAD_COMMAND_AGGRO
 	squad_aggro_target = target
+	team_director_timer = 0.0
 	add_kill_feed("Squad assisting on %s" % (target.get_actor_name() if target.has_method("get_actor_name") else "target"))
 
 func spawn_wave() -> void:
@@ -2166,10 +2668,71 @@ func _food_hit_shape_hit(shape: Dictionary, food: Node) -> bool:
 func record_food_consumed(actor: Node, food_kind: String, hunger_gain: float) -> void:
 	var food_label := "plant" if food_kind == FoodSourceScript.KIND_PLANT else "critter"
 	var actor_name: String = actor.get_actor_name() if actor != null and actor.has_method("get_actor_name") else "Creature"
+	_record_economy_event(actor, "food_consumed", {
+		"food_kind": food_kind,
+		"hunger_gain": hunger_gain
+	})
 	if hunger_gain > 0.0:
 		add_kill_feed("%s ate %s (+%d hunger)" % [actor_name, food_label, int(round(hunger_gain))])
 	else:
 		add_kill_feed("%s topped off on %s" % [actor_name, food_label])
+
+func get_economy_event_state() -> Array[Dictionary]:
+	return economy_events.duplicate(true)
+
+func get_economy_summary_state() -> Dictionary:
+	return {
+		"total_events": economy_event_sequence,
+		"retained_events": economy_events.size(),
+		"truncated_events": maxi(economy_event_sequence - economy_events.size(), 0),
+		"counts": economy_event_counts.duplicate(true),
+		"first_elapsed_sec": economy_first_event_sec.duplicate(true),
+		"by_team": {
+			"blue": {
+				"counts": economy_team_event_counts.get("blue", {}).duplicate(true),
+				"first_elapsed_sec": economy_team_first_event_sec.get("blue", {}).duplicate(true)
+			},
+			"red": {
+				"counts": economy_team_event_counts.get("red", {}).duplicate(true),
+				"first_elapsed_sec": economy_team_first_event_sec.get("red", {}).duplicate(true)
+			}
+		}
+	}
+
+func _record_economy_event(actor: Node, event_name: String, payload: Dictionary = {}) -> void:
+	economy_event_sequence += 1
+	var event := {
+		"sequence": economy_event_sequence,
+		"elapsed_sec": elapsed,
+		"slot_id": _economy_slot_id(actor),
+		"event": event_name
+	}
+	for key in payload:
+		event[key] = payload[key]
+	economy_event_counts[event_name] = int(economy_event_counts.get(event_name, 0)) + 1
+	if not economy_first_event_sec.has(event_name):
+		economy_first_event_sec[event_name] = elapsed
+	var event_team := int(payload.get("team", actor.get("team") if actor != null and is_instance_valid(actor) and actor.get("team") != null else -1))
+	if event_team == BLUE or event_team == RED:
+		var team_key := "blue" if event_team == BLUE else "red"
+		var team_counts: Dictionary = economy_team_event_counts[team_key]
+		team_counts[event_name] = int(team_counts.get(event_name, 0)) + 1
+		var first_events: Dictionary = economy_team_first_event_sec[team_key]
+		if not first_events.has(event_name):
+			first_events[event_name] = elapsed
+	economy_events.append(event)
+	while economy_events.size() > ECONOMY_EVENT_LIMIT:
+		economy_events.pop_front()
+
+func _economy_slot_id(actor: Node) -> String:
+	if actor == null or not is_instance_valid(actor):
+		return ""
+	var slot: Dictionary = slot_registry.get_slot_for_actor(actor)
+	if not slot.is_empty():
+		return String(slot.get("slot_id", ""))
+	var actor_team := int(actor.get("team")) if actor.get("team") != null else -1
+	var team_label := "blue" if actor_team == BLUE else ("red" if actor_team == RED else "neutral")
+	return "%s:unregistered" % team_label
 
 func get_day_state() -> Dictionary:
 	var phase := get_day_phase()
@@ -2583,6 +3146,11 @@ func get_lane_destination(attacking_team: int, lane_anchor: Vector2) -> Vector2:
 	return core.global_position if core != null else lane_anchor
 
 func can_damage_core(defending_team: int) -> bool:
+	if _is_competitive_mode() and not bool(match_rules.get("core_targetable", true)):
+		return false
+	return is_habitat_exposed(defending_team)
+
+func is_habitat_exposed(defending_team: int) -> bool:
 	return int(huts_lost.get(defending_team, 0)) > 0 or not _team_has_huts(defending_team)
 
 func _team_has_huts(defending_team: int) -> bool:
@@ -2835,6 +3403,9 @@ func heal_allies_in_radius(source_team: int, center: Vector2, radius: float, amo
 func record_death(victim: Node, killer: Node = null) -> void:
 	if victim == null or not victim.has_method("is_scored_actor") or not victim.is_scored_actor():
 		return
+	if bot_brain != null and bot_brain.has_method("reset_actor"):
+		bot_brain.reset_actor(victim)
+	team_director_timer = 0.0
 
 	var victim_key := _get_actor_key(victim)
 	_ensure_actor_stats(victim)
@@ -2857,10 +3428,13 @@ func _consume_stock_for_death(victim: Node) -> void:
 		return
 	var respawn_duration := float(victim.get("respawn_duration") if victim.get("respawn_duration") != null else 5.0)
 	var slot: Dictionary = stock_manager.record_ko(victim, respawn_duration)
-	if not slot.is_empty():
+	if bool(slot.get("consumed", false)):
 		_record_team_actor_stat(victim.team, "stock_losses", 1, victim)
+	else:
+		return
 	var remaining := int(slot.get("stocks_remaining", 0))
 	var max_stocks := int(slot.get("max_stocks", StockManagerScript.MAX_STOCKS))
+	switch_action_neutral_ticks.erase(victim.get_instance_id())
 	if String(slot.get("state", "")) == StockManagerScript.STATE_EXHAUSTED:
 		add_kill_feed("%s is out of stocks" % victim.get_actor_name())
 	else:
@@ -2868,7 +3442,10 @@ func _consume_stock_for_death(victim: Node) -> void:
 	_check_stock_victory(victim.team)
 
 func uses_stock_respawn(actor: Node) -> bool:
-	return _is_1v1_trio_mode() and actor != null and stock_manager.has_actor(actor)
+	return bool(match_rules.get("stock_respawns", false)) \
+		and slot_registry.is_sealed() \
+		and actor != null \
+		and stock_manager.has_actor(actor)
 
 func tick_stock_respawn(actor: Node, delta: float) -> bool:
 	if not uses_stock_respawn(actor):
@@ -2889,7 +3466,11 @@ func get_actor_respawn_position(actor: Node) -> Vector2:
 	return get_team_spawn(actor.team)
 
 func on_actor_respawned(actor: Node) -> void:
+	if bot_brain != null and bot_brain.has_method("reset_actor"):
+		bot_brain.reset_actor(actor)
+	team_director_timer = 0.0
 	if uses_stock_respawn(actor):
+		switch_action_neutral_ticks[actor.get_instance_id()] = 1
 		stock_manager.mark_respawned(actor)
 
 func _check_stock_victory(losing_team: int) -> void:
@@ -2903,10 +3484,11 @@ func _show_core_shielded(core: Node) -> void:
 	if hut_defend_hint_timer > 0.0:
 		return
 	hut_defend_hint_timer = 1.2
+	var shield_text := "HABITAT ANCHOR - eliminate enemy stocks" if _is_competitive_mode() else "SHIELDED - destroy a mud hut first"
 	telegraphs.append({
 		"type": "float_text",
 		"position": core.global_position + Vector2(-20.0, -70.0),
-		"text": "SHIELDED — destroy a mud hut first",
+		"text": shield_text,
 		"color": Color(0.7, 0.85, 1.0, 0.95),
 		"size": 13,
 		"duration": 1.1,
@@ -3756,6 +4338,8 @@ func _aura_color(source_ability: String, friendly: bool) -> Color:
 	return VisualGrammar.telegraph_color("aura", 0.82, false)
 
 func _on_core_destroyed(core) -> void:
+	if _is_competitive_mode() and not bool(match_rules.get("core_targetable", true)):
+		return
 	var winner := "Red" if core.team == BLUE else "Blue"
 	_finish_match(winner, "core_destroyed", "%s wins! Press Enter to restart or Esc for menu." % winner)
 
@@ -3763,9 +4347,34 @@ func _finish_match(winner: String, reason: String, status_text: String) -> void:
 	if match_over:
 		return
 	match_over = true
+	match_result = get_match_summary_data(winner, reason)
+	match_result["status_text"] = status_text
+	if match_result_panel != null and match_result_panel.has_method("get_display_state"):
+		match_result_panel.get_display_state()
+	_freeze_match_world()
 	_set_label_text_if_changed(status_label, status_text)
 	_set_label_text_if_changed(end_summary_label, _get_match_summary(winner))
-	_write_match_summary_log(winner, reason)
+	_write_match_summary_log(winner, reason, match_result)
+
+func get_match_result_state() -> Dictionary:
+	return match_result.duplicate(true)
+
+func _freeze_match_world() -> void:
+	var neutralized: Dictionary = {}
+	for entity: Node in entities:
+		if entity == null or not is_instance_valid(entity):
+			continue
+		var entity_id := entity.get_instance_id()
+		if neutralized.has(entity_id):
+			continue
+		neutralized[entity_id] = true
+		if entity.has_method("set_input_frame"):
+			entity.set_input_frame(InputFrameScript.new())
+	switch_action_neutral_ticks.clear()
+	switch_release_mask = 0
+	for child: Node in get_children():
+		child.process_mode = Node.PROCESS_MODE_DISABLED
+	set_physics_process(false)
 
 func _update_ui() -> void:
 	var blue_core = cores[BLUE]
@@ -3773,17 +4382,34 @@ func _update_ui() -> void:
 	var creature_name: String = player.creature_data.get("name", "Unknown") if player != null else "Unknown"
 	if not match_over:
 		_set_label_text_if_changed(status_label, get_status_hud_text(creature_name))
-	_set_label_text_if_changed(core_label, "Blue Core %d / %d    Red Core %d / %d" % [blue_core.health, blue_core.max_health, red_core.health, red_core.max_health])
+	if _is_competitive_mode():
+		var blue_stock := _team_stock_total(BLUE)
+		var red_stock := _team_stock_total(RED)
+		_set_label_text_if_changed(
+			core_label,
+			"Blue Stocks %d / %d    Red Stocks %d / %d"
+			% [blue_stock.x, blue_stock.y, red_stock.x, red_stock.y]
+		)
+	else:
+		_set_label_text_if_changed(core_label, "Blue Core %d / %d    Red Core %d / %d" % [blue_core.health, blue_core.max_health, red_core.health, red_core.max_health])
 	_set_label_text_if_changed(cooldown_label, _get_cooldown_text())
 	_set_label_text_if_changed(scoreboard_label, _get_scoreboard_text())
 	_set_label_text_if_changed(kill_feed_label, _get_kill_feed_text())
+
+func _team_stock_total(team: int) -> Vector2i:
+	var remaining := 0
+	var maximum := 0
+	for slot: Dictionary in stock_manager.get_team_slots(team):
+		remaining += int(slot.get("stocks_remaining", 0))
+		maximum += int(slot.get("max_stocks", 0))
+	return Vector2i(remaining, maximum)
 
 func _set_label_text_if_changed(label: Label, next_text: String) -> void:
 	if label != null and label.text != next_text:
 		label.text = next_text
 
 func get_status_hud_text(creature_name := "") -> String:
-	var mode_text: String = "1v1 Trio" if _is_1v1_trio_mode() else GameConfig.selected_mode
+	var mode_text: String = "Play vs AI" if _is_1v1_trio_mode() else GameConfig.selected_mode
 	var display_name: String = creature_name
 	if display_name.is_empty():
 		display_name = String(player.creature_data.get("name", "Unknown")) if player != null else "Unknown"
@@ -3871,12 +4497,20 @@ func _get_kill_feed_text() -> String:
 
 func _ensure_actor_stats(actor: Node) -> void:
 	var key := _get_actor_key(actor)
+	var slot: Dictionary = slot_registry.get_slot_for_actor(actor)
 	if actor_stats.has(key):
+		if not slot.is_empty():
+			actor_stats[key]["slot_id"] = String(slot.get("slot_id", ""))
+			actor_stats[key]["slot_index"] = int(slot.get("slot_index", -1))
+			actor_stats[key]["creature_id"] = String(slot.get("creature_id", actor_stats[key].get("creature_id", "")))
 		return
 
 	actor_stats[key] = {
 		"name": actor.get_actor_name() if actor.has_method("get_actor_name") else "Actor",
 		"team": actor.team,
+		"slot_id": String(slot.get("slot_id", "")),
+		"slot_index": int(slot.get("slot_index", -1)),
+		"creature_id": String(slot.get("creature_id", actor.get("creature_id") if actor.get("creature_id") != null else "")),
 		"kills": 0,
 		"deaths": 0,
 		"core_damage": 0.0,
@@ -3885,7 +4519,10 @@ func _ensure_actor_stats(actor: Node) -> void:
 		"deposits": 0,
 		"breeds_completed": 0,
 		"breeds_denied": 0,
-		"wildlife_defeats": 0
+		"wildlife_defeats": 0,
+		"boss_claims": 0,
+		"boss_steals": 0,
+		"center_claims": 0
 	}
 
 func _get_actor_key(actor: Node) -> String:
@@ -3894,6 +4531,13 @@ func _get_actor_key(actor: Node) -> String:
 func _reset_match_telemetry() -> void:
 	actor_stats.clear()
 	match_summary_log_path = ""
+	match_result.clear()
+	economy_events.clear()
+	economy_event_sequence = 0
+	economy_event_counts.clear()
+	economy_first_event_sec.clear()
+	economy_team_event_counts = {"blue": {}, "red": {}}
+	economy_team_first_event_sec = {"blue": {}, "red": {}}
 	_reset_team_vision()
 	team_stats = {
 		BLUE: _new_team_stats(),
@@ -3998,16 +4642,27 @@ func _get_match_summary(winner: String) -> String:
 	return "\n".join(lines)
 
 func get_match_summary_data(winner := "", reason := "") -> Dictionary:
+	var competitive := _is_competitive_mode()
 	return {
 		"schema": MATCH_SUMMARY_SCHEMA,
 		"winner": winner,
 		"reason": reason,
 		"time": _format_match_time(elapsed),
 		"elapsed_sec": elapsed,
-		"mode": GameConfig.selected_mode,
+		"mode": legacy_mode_snapshot,
+		"ruleset_id": String(match_rules.get("id", "")) if competitive else "",
+		"rules_schema_version": int(match_rules.get("schema_version", 0)) if competitive else 0,
+		"rules_fingerprint": _rules_fingerprint() if competitive else "",
+		"control_topology_id": String(control_topology.get("id", "")),
+		"simulation_seed": match_seed,
 		"mode_tuning": _match_mode_tuning_data(),
 		"selected_creature_id": GameConfig.selected_creature_id,
 		"selected_squad_ids": GameConfig.get_selected_squad_ids() if GameConfig.has_method("get_selected_squad_ids") else [GameConfig.selected_creature_id],
+		"selected_red_squad_ids": GameConfig.get_selected_red_squad_ids() if GameConfig.has_method("get_selected_red_squad_ids") else [],
+		"resolved_rosters": {
+			"blue": _resolved_team_roster(BLUE),
+			"red": _resolved_team_roster(RED)
+		},
 		"draft": GameConfig.get_draft_stub_state() if GameConfig.has_method("get_draft_stub_state") else {},
 		"teams": {
 			"blue": _team_match_summary_data(BLUE),
@@ -4019,22 +4674,24 @@ func get_match_summary_data(winner := "", reason := "") -> Dictionary:
 		"balance_review_focus": _match_balance_review_focus(),
 		"balance_review_summary": _match_balance_review_summary(),
 		"top_players": _top_match_summary_rows(),
-		"players": _player_match_summary_rows()
+		"players": _player_match_summary_rows(),
+		"economy_events": get_economy_event_state(),
+		"economy_summary": get_economy_summary_state()
 	}
 
 func get_last_match_summary_log_path() -> String:
 	return match_summary_log_path
 
-func _write_match_summary_log(winner: String, reason: String) -> void:
+func _write_match_summary_log(winner: String, reason: String, frozen_result: Dictionary = {}) -> void:
 	var dir_path := ProjectSettings.globalize_path(MATCH_LOG_DIR)
 	var dir_error := DirAccess.make_dir_recursive_absolute(dir_path)
 	if dir_error != OK:
 		push_warning("Could not create match log directory: %s error=%d" % [MATCH_LOG_DIR, dir_error])
 		return
-	var data := get_match_summary_data(winner, reason)
+	var data := frozen_result.duplicate(true) if not frozen_result.is_empty() else get_match_summary_data(winner, reason)
 	var filename := "match_%d_%s_p%d_%s.json" % [
 		Time.get_unix_time_from_system(),
-		String(GameConfig.selected_mode).replace(" ", "_").to_lower(),
+		legacy_mode_snapshot.replace(" ", "_").to_lower(),
 		int(data.get("balance_review_priority", 0)),
 		reason
 	]
@@ -4080,7 +4737,12 @@ func _format_match_context_line() -> String:
 		var ban_text := _format_draft_bans(draft_state)
 		if not ban_text.is_empty():
 			draft_text += " (%s)" % ban_text
-	return "Mode: %s | Squad: %s | %s | %s" % [String(GameConfig.selected_mode), squad_text, draft_text, _format_mode_tuning_line()]
+	return "Mode: %s | Squad: %s | %s | %s" % [legacy_mode_snapshot, squad_text, draft_text, _format_mode_tuning_line()]
+
+func _rules_fingerprint() -> String:
+	if match_rules.is_empty():
+		return ""
+	return str(JSON.stringify(match_rules).hash())
 
 func _format_mode_tuning_line() -> String:
 	var tuning := _match_mode_tuning_data()
@@ -4188,9 +4850,20 @@ func _team_match_summary_data(team: int) -> Dictionary:
 		"breeds_completed": int(stats.get("breeds_completed", 0)),
 		"breeds_denied": int(stats.get("breeds_denied", 0)),
 		"wildlife_defeats": int(stats.get("wildlife_defeats", 0)),
+		"boss_claims": int(stats.get("boss_claims", 0)),
+		"boss_steals": int(stats.get("boss_steals", 0)),
+		"center_claims": int(stats.get("center_claims", 0)),
 		"buffs": _format_breeding_buff_line(team),
 		"buff_summary": get_team_breeding_buff_summary(team)
 	}
+
+func _resolved_team_roster(team: int) -> Array[String]:
+	var roster: Array[String] = []
+	if not slot_registry.is_sealed():
+		return roster
+	for slot: Dictionary in slot_registry.get_team_slots(team):
+		roster.append(String(slot.get("creature_id", "")))
+	return roster
 
 func _match_balance_deltas() -> Dictionary:
 	var blue := _team_match_summary_data(BLUE)
@@ -4315,6 +4988,7 @@ func _team_stock_totals(team: int) -> Dictionary:
 	return totals
 
 func _player_match_summary_rows() -> Array[Dictionary]:
+	_ensure_registered_actor_stats()
 	var rows: Array[Dictionary] = []
 	for key in actor_stats.keys():
 		var stats: Dictionary = actor_stats[key]
@@ -4322,6 +4996,15 @@ func _player_match_summary_rows() -> Array[Dictionary]:
 	_rank_player_summary_rows(rows)
 	rows.sort_custom(Callable(self, "_sort_player_summary_rows"))
 	return rows
+
+func _ensure_registered_actor_stats() -> void:
+	if not slot_registry.is_sealed():
+		return
+	for team_value in [BLUE, RED]:
+		for slot: Dictionary in slot_registry.get_team_slots(int(team_value)):
+			var actor: Node = slot.get("actor", null)
+			if actor != null and is_instance_valid(actor):
+				_ensure_actor_stats(actor)
 
 func _player_match_summary_entry(stats: Dictionary) -> Dictionary:
 	var entry := stats.duplicate(true)
@@ -4458,30 +5141,47 @@ func _player_near_own_hut() -> bool:
 	return false
 
 func _try_manual_habitat_deposit(actor: Node) -> bool:
-	if actor == null or not is_instance_valid(actor) or habitat_deposit_feedback_timer > 0.0:
+	return _try_habitat_deposit(actor, true)
+
+func _try_autonomous_habitat_deposit(actor: Node) -> bool:
+	return _try_habitat_deposit(actor, false)
+
+func _try_habitat_deposit(actor: Node, show_player_feedback: bool) -> bool:
+	if actor == null or not is_instance_valid(actor):
 		return false
-	habitat_deposit_feedback_timer = 1.0
+	if show_player_feedback and habitat_deposit_feedback_timer > 0.0:
+		return false
+	if show_player_feedback:
+		habitat_deposit_feedback_timer = 1.0
 	if not _is_actor_in_home_habitat(actor):
-		habitat_deposit_prompt_state = "needs_habitat"
-		add_kill_feed("U: enter home habitat to deposit")
+		if show_player_feedback:
+			habitat_deposit_prompt_state = "needs_habitat"
+			add_kill_feed("U: enter home habitat to deposit")
 		return false
 	if actor.has_method("is_satiated") and not actor.is_satiated():
-		habitat_deposit_prompt_state = "needs_food"
-		add_kill_feed("U: eat wild food until satiated first")
+		if show_player_feedback:
+			habitat_deposit_prompt_state = "needs_food"
+			add_kill_feed("U: eat wild food until satiated first")
 		return false
 	var cue: Dictionary = {}
 	if uses_stock_respawn(actor):
 		cue = stock_manager.record_habitat_visit(actor)
 		if not bool(cue.get("accepted", true)):
-			habitat_deposit_prompt_state = "duplicate"
-			add_kill_feed("U: %s is already breeding" % actor.get_actor_name())
+			if show_player_feedback:
+				habitat_deposit_prompt_state = "duplicate"
+				add_kill_feed("U: %s is already breeding" % actor.get_actor_name())
 			return false
 		_spawn_breeding_actor_for_cue(cue)
 	if actor.has_method("reset_hunger_after_deposit") and actor.has_method("is_satiated") and actor.is_satiated():
 		actor.reset_hunger_after_deposit()
-	habitat_deposit_prompt_state = "accepted"
+	if show_player_feedback:
+		habitat_deposit_prompt_state = "accepted"
 	_record_team_actor_stat(actor.team, "deposits", 1, actor)
 	var duration := float(cue.get("duration", StockManagerScript.BREEDING_DURATION_SEC)) if not cue.is_empty() else StockManagerScript.BREEDING_DURATION_SEC
+	_record_economy_event(actor, "deposit_committed", {
+		"team": int(actor.team),
+		"breeding_duration_sec": duration
+	})
 	add_kill_feed("%s deposited at habitat; breeding %.0fs" % [actor.get_actor_name(), duration])
 	return true
 
@@ -4497,10 +5197,10 @@ func _team_name(team: int) -> String:
 var quit_confirm_timer := 0.0
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not (event as InputEventKey).echo and (event as InputEventKey).keycode == KEY_F9:
+	if not _is_all_bots_mode() and event is InputEventKey and event.pressed and not (event as InputEventKey).echo and (event as InputEventKey).keycode == KEY_F9:
 		debug_wake_boss(BLUE)
 		return
-	if event is InputEventKey and event.pressed and not (event as InputEventKey).echo and (event as InputEventKey).keycode == KEY_F10:
+	if not _is_all_bots_mode() and event is InputEventKey and event.pressed and not (event as InputEventKey).echo and (event as InputEventKey).keycode == KEY_F10:
 		debug_spawn_center_boss()
 		return
 	if match_over and event.is_action_pressed("ui_accept"):

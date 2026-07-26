@@ -187,7 +187,7 @@ func _select_creature(index: int) -> void:
 	_refresh_squad_display()
 
 func _setup_mode_ui() -> void:
-	var mode_text := "1v1 Trio" if _is_trio_mode() else GameConfig.selected_mode
+	var mode_text := "Play vs AI" if _is_trio_mode() else GameConfig.selected_mode
 	mode_label.text = "Mode: %s" % mode_text
 	squad_panel.visible = _is_trio_mode()
 	start_button.text = "Start Trio Match" if _is_trio_mode() else "Start Match"

@@ -17,8 +17,8 @@ func _run() -> void:
 		return
 
 	_check_match_summary_telemetry(arena, failures)
-	await _check_summary_mode_tuning("3v3", 105, 20, 3, 2, "Pace: hunger 105s, wave 20s, 2/2 huts, 3 minions/hut", failures)
-	await _check_summary_mode_tuning("Hero Lab", 105, 18, 3, 2, "Pace: hunger 105s, wave 18s, 2/2 huts, 3 minions/hut", failures)
+	await _check_summary_mode_tuning("3v3", 105, 20, 3, 2, "legacy_single_lead", "Pace: hunger 105s, wave 20s, 2/2 huts, 3 minions/hut", failures)
+	await _check_summary_mode_tuning("Hero Lab", 105, 18, 3, 2, "", "Pace: hunger 105s, wave 18s, 2/2 huts, 3 minions/hut", failures)
 
 	print("m8_summary failures=%d" % failures.size())
 	for failure in failures:
@@ -40,7 +40,7 @@ func _boot_arena_mode(mode: String, squad_ids: Array, failures: Array[String]) -
 	await process_frame
 	return current_scene
 
-func _check_summary_mode_tuning(mode: String, expected_hunger: int, expected_wave: int, expected_minions: int, expected_huts_per_side: int, expected_line: String, failures: Array[String]) -> void:
+func _check_summary_mode_tuning(mode: String, expected_hunger: int, expected_wave: int, expected_minions: int, expected_huts_per_side: int, expected_control_topology: String, expected_line: String, failures: Array[String]) -> void:
 	var arena := await _boot_arena_mode(mode, ["snapping_turtle", "chorus_frog", "mink"], failures)
 	if arena == null or not arena.has_method("get_match_summary_data"):
 		failures.append("summary mode tuning check could not boot %s; arena=%s" % [mode, str(arena)])
@@ -49,7 +49,12 @@ func _check_summary_mode_tuning(mode: String, expected_hunger: int, expected_wav
 	var tuning: Dictionary = summary.get("mode_tuning", {})
 	var huts: Dictionary = tuning.get("huts_per_side", {})
 	var text: String = arena._get_match_summary("Blue")
+	var expects_competitive := not expected_control_topology.is_empty()
 	var ok := String(summary.get("mode", "")) == mode \
+		and (String(summary.get("ruleset_id", "")) == "competitive_3v3") == expects_competitive \
+		and (int(summary.get("rules_schema_version", 0)) == 1) == expects_competitive \
+		and (not String(summary.get("rules_fingerprint", "")).is_empty()) == expects_competitive \
+		and String(summary.get("control_topology_id", "")) == expected_control_topology \
 		and int(tuning.get("hunger_full_to_empty_sec", 0)) == expected_hunger \
 		and int(tuning.get("wave_interval_sec", 0)) == expected_wave \
 		and int(tuning.get("lane_minions_per_hut", 0)) == expected_minions \
@@ -115,6 +120,10 @@ func _check_match_summary_telemetry(arena: Node, failures: Array[String]) -> voi
 	var data_ok := String(summary.get("schema", "")) == "battle_bog_match_summary_v1" \
 		and String(summary.get("winner", "")) == "Blue" \
 		and String(summary.get("time", "")) == "02:05" \
+		and String(summary.get("ruleset_id", "")) == "competitive_3v3" \
+		and int(summary.get("rules_schema_version", 0)) == 1 \
+		and not String(summary.get("rules_fingerprint", "")).is_empty() \
+		and String(summary.get("control_topology_id", "")) == "solo_swap" \
 		and int(blue.get("stock_losses", 0)) == 1 \
 		and int(blue.get("deposits", 0)) == 2 \
 		and int(blue.get("breeds_completed", 0)) == 1 \
@@ -125,11 +134,11 @@ func _check_match_summary_telemetry(arena: Node, failures: Array[String]) -> voi
 		and int(blue.get("max_stocks", 0)) == 9 \
 		and int(blue.get("stocks_remaining", 0)) == 8 \
 		and String(summary.get("selected_creature_id", "")) == "duck" \
-		and int(mode_tuning.get("hunger_full_to_empty_sec", 0)) == 90 \
-		and int(mode_tuning.get("wave_interval_sec", 0)) == 18 \
-		and int(mode_tuning.get("lane_minions_per_hut", 0)) == 2 \
-		and int(mode_huts.get("blue", 0)) == 1 \
-		and int(mode_huts.get("red", 0)) == 1 \
+		and int(mode_tuning.get("hunger_full_to_empty_sec", 0)) == 105 \
+		and int(mode_tuning.get("wave_interval_sec", 0)) == 20 \
+		and int(mode_tuning.get("lane_minions_per_hut", 0)) == 3 \
+		and int(mode_huts.get("blue", 0)) == 2 \
+		and int(mode_huts.get("red", 0)) == 2 \
 		and selected_squad.size() == 3 \
 		and selected_squad.has("duck") \
 		and bool(draft.get("enabled", false)) \
@@ -172,7 +181,7 @@ func _check_match_summary_telemetry(arena: Node, failures: Array[String]) -> voi
 		and text.contains("Mode: 1v1") \
 		and text.contains("Squad: Duck / Snapping Turtle / Mink") \
 		and text.contains("Draft: pick 3, ban 1/team") \
-		and text.contains("Pace: hunger 90s, wave 18s, 1/1 huts, 2 minions/hut") \
+		and text.contains("Pace: hunger 105s, wave 20s, 2/2 huts, 3 minions/hut") \
 		and text.contains("Review flags:") \
 		and text.contains("Blue objective pressure") \
 		and text.contains("Blue breeding tempo") \
@@ -230,11 +239,15 @@ func _check_match_summary_telemetry(arena: Node, failures: Array[String]) -> voi
 		and String(log_data.get("reason", "")) == "test_summary" \
 		and log_path.contains("_p5_test_summary.json") \
 		and String(log_data.get("selected_creature_id", "")) == "duck" \
-		and int(log_mode_tuning.get("hunger_full_to_empty_sec", 0)) == 90 \
-		and int(log_mode_tuning.get("wave_interval_sec", 0)) == 18 \
-		and int(log_mode_tuning.get("lane_minions_per_hut", 0)) == 2 \
-		and int(log_mode_huts.get("blue", 0)) == 1 \
-		and int(log_mode_huts.get("red", 0)) == 1 \
+		and String(log_data.get("ruleset_id", "")) == "competitive_3v3" \
+		and int(log_data.get("rules_schema_version", 0)) == 1 \
+		and not String(log_data.get("rules_fingerprint", "")).is_empty() \
+		and String(log_data.get("control_topology_id", "")) == "solo_swap" \
+		and int(log_mode_tuning.get("hunger_full_to_empty_sec", 0)) == 105 \
+		and int(log_mode_tuning.get("wave_interval_sec", 0)) == 20 \
+		and int(log_mode_tuning.get("lane_minions_per_hut", 0)) == 3 \
+		and int(log_mode_huts.get("blue", 0)) == 2 \
+		and int(log_mode_huts.get("red", 0)) == 2 \
 		and log_squad.has("snapping_turtle") \
 		and bool(log_draft.get("enabled", false)) \
 		and int(log_draft.get("pick_slots_per_team", 0)) == 3 \

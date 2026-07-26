@@ -6,13 +6,19 @@ const PLAYABLE_SQUAD_POOL := ["snapping_turtle", "chorus_frog", "mink", "beaver"
 var selected_mode := "1v1"
 var selected_creature_id := "snapping_turtle"
 var selected_squad_ids: Array[String] = ["snapping_turtle", "chorus_frog", "mink"]
+var selected_red_squad_ids: Array[String] = []
 var blue_draft_bans: Array[String] = []
 var red_draft_bans: Array[String] = []
 var wake_boss := false
 var center_boss := false
+var simulation_seed := -1
+var simulation_config_errors: Array[String] = []
 
 func _ready() -> void:
 	var perf_requested := false
+	var requested_blue_squad: Array = []
+	var requested_red_squad: Array = []
+	var requested_seed_text := ""
 	for argument in OS.get_cmdline_args():
 		if argument.begins_with("--mode="):
 			selected_mode = argument.trim_prefix("--mode=")
@@ -24,8 +30,62 @@ func _ready() -> void:
 			wake_boss = true
 		elif argument == "--bb-center-boss":
 			center_boss = true
+		elif argument.begins_with("--bb-sim-seed="):
+			requested_seed_text = argument.trim_prefix("--bb-sim-seed=")
+		elif argument.begins_with("--bb-blue-squad="):
+			requested_blue_squad = argument.trim_prefix("--bb-blue-squad=").split(",")
+		elif argument.begins_with("--bb-red-squad="):
+			requested_red_squad = argument.trim_prefix("--bb-red-squad=").split(",")
+	if selected_mode.strip_edges().to_lower() in ["all bots", "all_bots"]:
+		if not requested_seed_text.is_valid_int():
+			simulation_config_errors.append("simulation seed must be a nonnegative integer")
+		else:
+			set_simulation_request(requested_blue_squad, requested_red_squad, int(requested_seed_text))
 	if perf_requested:
 		add_child(preload("res://scripts/game/perf_harness.gd").new())
+
+func set_simulation_request(blue_ids: Array, red_ids: Array, seed_value: int) -> bool:
+	simulation_config_errors = _simulation_request_errors(blue_ids, red_ids, seed_value)
+	if not simulation_config_errors.is_empty():
+		return false
+	selected_squad_ids.assign(blue_ids)
+	selected_creature_id = selected_squad_ids[0]
+	selected_red_squad_ids.assign(red_ids)
+	simulation_seed = seed_value
+	return true
+
+func get_simulation_request_errors() -> Array[String]:
+	var errors := _simulation_request_errors(selected_squad_ids, selected_red_squad_ids, simulation_seed)
+	for error in simulation_config_errors:
+		if not errors.has(error):
+			errors.append(error)
+	return errors
+
+func clear_simulation_request() -> void:
+	simulation_seed = -1
+	simulation_config_errors.clear()
+	selected_red_squad_ids.clear()
+
+func _simulation_request_errors(blue_ids: Array, red_ids: Array, seed_value: int) -> Array[String]:
+	var errors: Array[String] = []
+	_validate_exact_simulation_roster("blue", blue_ids, errors)
+	_validate_exact_simulation_roster("red", red_ids, errors)
+	if seed_value < 0:
+		errors.append("simulation seed must be a nonnegative integer")
+	return errors
+
+func _validate_exact_simulation_roster(side: String, creature_ids: Array, errors: Array[String]) -> void:
+	if creature_ids.size() != 3:
+		errors.append("%s simulation roster must contain exactly three creatures" % side)
+		return
+	var seen: Dictionary = {}
+	for creature_value in creature_ids:
+		var creature_id := String(creature_value).strip_edges()
+		if not PLAYABLE_SQUAD_POOL.has(creature_id):
+			errors.append("%s simulation roster has unknown creature: %s" % [side, creature_id])
+		elif seen.has(creature_id):
+			errors.append("%s simulation roster has duplicate creature: %s" % [side, creature_id])
+		seen[creature_id] = true
 
 func set_selected_creature(creature_id: String) -> void:
 	var playable_id := _playable_or_default(creature_id)
@@ -39,6 +99,16 @@ func set_selected_squad_ids(creature_ids: Array) -> void:
 	selected_squad_ids = _normalize_squad_ids(creature_ids)
 	if not selected_squad_ids.is_empty():
 		selected_creature_id = selected_squad_ids[0]
+
+func get_selected_red_squad_ids() -> Array[String]:
+	return selected_red_squad_ids.duplicate()
+
+func set_selected_red_squad_ids(creature_ids: Array) -> void:
+	var normalized := _normalize_explicit_squad_ids(creature_ids)
+	selected_red_squad_ids.assign(normalized)
+
+func clear_selected_red_squad_ids() -> void:
+	selected_red_squad_ids.clear()
 
 func clear_draft_bans() -> void:
 	blue_draft_bans.clear()
@@ -124,3 +194,17 @@ func _normalize_ban_ids(creature_ids: Array, limit: int) -> Array[String]:
 			continue
 		output.append(normalized_id)
 	return output
+
+func _normalize_explicit_squad_ids(creature_ids: Array) -> Array[String]:
+	var output: Array[String] = []
+	for creature_id in creature_ids:
+		var normalized_id := String(creature_id)
+		if normalized_id.is_empty() \
+			or output.has(normalized_id) \
+			or not PLAYABLE_SQUAD_POOL.has(normalized_id) \
+			or is_creature_banned(normalized_id):
+			continue
+		output.append(normalized_id)
+		if output.size() >= 3:
+			break
+	return output if output.size() == 3 else []

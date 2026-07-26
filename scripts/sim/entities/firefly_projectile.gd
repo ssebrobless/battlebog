@@ -18,6 +18,7 @@ var radius := 5.0
 var lifetime := 1.0
 var hit_entities: Array[Node] = []
 var target: Node = null
+var harvested_food := false
 
 func setup(projectile_arena: Node, source_actor: Node, start_position: Vector2, direction: Vector2, range_px: float, projectile_damage: float) -> void:
 	arena = projectile_arena
@@ -49,6 +50,13 @@ func _physics_process(delta: float) -> void:
 func _hit_scan() -> void:
 	if arena == null:
 		return
+	if not harvested_food and arena.has_method("try_harvest_food_with_hit_shape"):
+		var hit_shape := {
+			"kind": "circle",
+			"center": global_position,
+			"radius": radius
+		}
+		harvested_food = arena.try_harvest_food_with_hit_shape(source_actor, hit_shape, "Firefly Spark")
 	for entity in arena.entities:
 		if hit_entities.has(entity) or not _target_ok(entity):
 			continue

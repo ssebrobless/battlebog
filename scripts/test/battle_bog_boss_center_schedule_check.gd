@@ -62,6 +62,11 @@ func _run() -> void:
 		failures.append("owner claim should grant combat reward stack 1; reward=%s" % str(reward))
 	if not arena.get_active_terrain_events().is_empty():
 		failures.append("center boss must NOT fire directed terrain disruption; got %s" % str(arena.get_active_terrain_events()))
+	if int(arena.team_stats[0].get("center_claims", 0)) != 1:
+		failures.append("center claim should increment Blue center_claims exactly once; stats=%s" % str(arena.team_stats[0]))
+	var blue_summary: Dictionary = arena.get_match_summary_data("Blue", "test").get("teams", {}).get("blue", {})
+	if int(blue_summary.get("center_claims", 0)) != 1:
+		failures.append("match summary should retain center claim telemetry; blue=%s" % str(blue_summary))
 
 	# Same family claimed again upgrades the stack once, capped at 2.
 	arena._grant_center_reward(0, family)

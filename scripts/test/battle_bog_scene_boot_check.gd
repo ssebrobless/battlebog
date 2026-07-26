@@ -13,15 +13,15 @@ func _run() -> void:
 	var failures: Array[String] = []
 	var main_ok: bool = await _check_main_menu(failures)
 	var select_ok: bool = await _check_character_select(failures)
-	var arena_1v1_ok: bool = await _check_arena_mode("1v1", 3, 3, 2, 4, 18.0, 90.0, 2.6, failures)
+	var play_vs_ai_ok: bool = await _check_arena_mode("1v1", 3, 3, 4, 12, 20.0, 105.0, 2.6, failures)
 	var arena_3v3_ok: bool = await _check_arena_mode("3v3", 0, 5, 4, 12, 20.0, 105.0, 2.2, failures)
 	var hero_lab_ok: bool = await _check_arena_mode("Hero Lab", 0, 1, 4, 12, 18.0, 105.0, 2.8, failures)
-	var passed := main_ok and select_ok and arena_1v1_ok and arena_3v3_ok and hero_lab_ok
+	var passed := main_ok and select_ok and play_vs_ai_ok and arena_3v3_ok and hero_lab_ok
 
-	print("scene_boot main=%s select=%s arena_1v1=%s arena_3v3=%s hero_lab=%s" % [
+	print("scene_boot main=%s select=%s play_vs_ai_canonical=%s arena_3v3=%s hero_lab=%s" % [
 		str(main_ok),
 		str(select_ok),
-		str(arena_1v1_ok),
+		str(play_vs_ai_ok),
 		str(arena_3v3_ok),
 		str(hero_lab_ok)
 	])
@@ -130,6 +130,7 @@ func _check_arena_mode(mode: String, expected_squad_size: int, expected_bot_coun
 		and int(water_layer.call("get_animation_primitive_budget_per_origin")) <= 3
 	var collision_hygiene_ok := _check_collision_hygiene(scene, failures)
 	var renderer_ok := _check_renderer_mode()
+	var expectation_label := "canonical competitive parity" if mode == "1v1" else "implemented mode"
 
 	var ok := squad.size() == expected_squad_size \
 		and bots.size() == expected_bot_count \
@@ -158,8 +159,9 @@ func _check_arena_mode(mode: String, expected_squad_size: int, expected_bot_coun
 		and collision_hygiene_ok \
 		and renderer_ok
 	if not ok:
-		failures.append("Arena %s expected squad=%d bots=%d cores=2 huts=%d lane_minions=%d wave=%.1f hunger=%.1f zoom=%.1f player/camera/status/minimap/static terrain/shoreline/edge detail/props/habitat ground/beacons/presentation/status text/debug hurtbox/water/collision hygiene/mobile renderer; got squad=%d bots=%d cores=%d huts=%d lane_minions=%d wave=%.1f hunger=%.1f zoom=%.1f player=%s camera=%s status=%s minimap=%s backdrop=%s terrain=%s shoreline=%s edge_detail=%s props=%s habitat_ground=%s beacons=%s presentation=%s status_text=%s debug_hurtbox=%s water=%s collision=%s renderer=%s" % [
+		failures.append("Arena %s failed %s expectations: squad=%d bots=%d cores=2 huts=%d lane_minions=%d wave=%.1f hunger=%.1f zoom=%.1f plus player/camera/status/minimap/static terrain/shoreline/edge detail/props/habitat ground/beacons/presentation/status text/debug hurtbox/water/collision hygiene/mobile renderer; got squad=%d bots=%d cores=%d huts=%d lane_minions=%d wave=%.1f hunger=%.1f zoom=%.1f player=%s camera=%s status=%s minimap=%s backdrop=%s terrain=%s shoreline=%s edge_detail=%s props=%s habitat_ground=%s beacons=%s presentation=%s status_text=%s debug_hurtbox=%s water=%s collision=%s renderer=%s" % [
 			mode,
+			expectation_label,
 			expected_squad_size,
 			expected_bot_count,
 			expected_hut_count,

@@ -70,6 +70,7 @@ func _draw_slot_row(row: Dictionary, rect: Rect2, owned: bool) -> void:
 	var active := bool(row.get("active", false))
 	var state := String(row.get("state", "field"))
 	var hp_ratio := clampf(float(row.get("hp_ratio", 0.0)), 0.0, 1.0)
+	var hp_known := bool(row.get("hp_known", true))
 	var team_color := VisualGrammar.team_color(team, 0.95)
 	var background := Color(0.07, 0.08, 0.072, 0.9)
 	if active:
@@ -94,7 +95,10 @@ func _draw_slot_row(row: Dictionary, rect: Rect2, owned: bool) -> void:
 		hp_color = Color(0.95, 0.78, 0.28, 0.95)
 	if state == "exhausted":
 		hp_color = Color(0.28, 0.25, 0.24, 0.95)
-	draw_rect(Rect2(hp_rect.position, Vector2(hp_rect.size.x * hp_ratio, hp_rect.size.y)), hp_color)
+	if hp_known:
+		draw_rect(Rect2(hp_rect.position, Vector2(hp_rect.size.x * hp_ratio, hp_rect.size.y)), hp_color)
+	else:
+		draw_rect(hp_rect, Color(0.24, 0.26, 0.24, 0.82))
 
 	_draw_stock_pips(rect.position + Vector2(146.0, 17.0), int(row.get("stocks", 0)), int(row.get("max_stocks", 3)), team_color)
 	draw_string(ThemeDB.fallback_font, rect.position + Vector2(206.0, 18.0), _state_label(row), HORIZONTAL_ALIGNMENT_LEFT, 36.0, 11, _state_color(row))
@@ -109,9 +113,13 @@ func _draw_enemy_strip(rows: Array, rect: Rect2) -> void:
 		var name := _short_name(String(row.get("name", row.get("creature_id", ""))), 8)
 		draw_string(ThemeDB.fallback_font, Vector2(rect.position.x + 8.0, y + 11.0), "%d %s" % [int(row.get("slot_index", 0)) + 1, name], HORIZONTAL_ALIGNMENT_LEFT, 62.0, 10, Color(1.0, 0.92, 0.88, 0.88))
 		var hp_ratio := clampf(float(row.get("hp_ratio", 0.0)), 0.0, 1.0)
+		var hp_known := bool(row.get("hp_known", false))
 		var hp_rect := Rect2(Vector2(rect.position.x + 70.0, y + 3.0), Vector2(30.0, 5.0))
 		draw_rect(hp_rect, Color(0.02, 0.018, 0.018, 0.92))
-		draw_rect(Rect2(hp_rect.position, Vector2(hp_rect.size.x * hp_ratio, hp_rect.size.y)), VisualGrammar.team_color(1, 0.9))
+		if hp_known:
+			draw_rect(Rect2(hp_rect.position, Vector2(hp_rect.size.x * hp_ratio, hp_rect.size.y)), VisualGrammar.team_color(1, 0.9))
+		else:
+			draw_rect(hp_rect, Color(0.3, 0.26, 0.24, 0.82))
 		_draw_stock_pips(Vector2(rect.position.x + 70.0, y + 11.0), int(row.get("stocks", 0)), int(row.get("max_stocks", 3)), VisualGrammar.team_color(1, 0.88), Vector2(6.0, 4.0), 2.0)
 
 func _draw_prompt_strip(data: Dictionary, rect: Rect2) -> void:
@@ -157,13 +165,16 @@ func _draw_boss_objective_strip(objective: Dictionary, breeding: Dictionary, rec
 	if objective.is_empty():
 		return
 	var side: Dictionary = objective.get("side", {})
+	var enemy_side: Dictionary = objective.get("enemy_side", {})
 	var center: Dictionary = objective.get("center", {})
 	var rewards: Dictionary = objective.get("combat_rewards", {})
-	var side_text := _side_objective_text(side)
+	var side_text := "O%s" % _side_objective_text(side)
+	var enemy_text := "E%s" % _side_objective_text(enemy_side)
 	var breeding_text := _breeding_objective_text(breeding)
 	var center_text := _center_objective_text(center)
 	var reward_text := _reward_objective_text(rewards)
 	var side_color := _objective_action_color(String(side.get("action", "breed")))
+	var enemy_color := _objective_action_color(String(enemy_side.get("action", "breed")))
 	var breeding_color := Color(0.96, 0.78, 0.32, 0.92) if bool(breeding.get("active", false)) else Color(0.62, 0.66, 0.56, 0.78)
 	draw_rect(rect, Color(0.025, 0.035, 0.032, 0.82))
 	draw_rect(rect, Color(0.42, 0.55, 0.46, 0.42), false, 1.0)
@@ -171,14 +182,19 @@ func _draw_boss_objective_strip(objective: Dictionary, breeding: Dictionary, rec
 	var meter_rect := Rect2(rect.position + Vector2(6.0, 13.0), Vector2(54.0, 3.0))
 	draw_rect(meter_rect, Color(0.04, 0.045, 0.04, 0.9))
 	draw_rect(Rect2(meter_rect.position, Vector2(meter_rect.size.x * meter_ratio, meter_rect.size.y)), side_color)
-	var breeding_rect := Rect2(rect.position + Vector2(66.0, 13.0), Vector2(36.0, 3.0))
+	var enemy_meter_ratio := clampf(float(enemy_side.get("meter_ratio", 0.0)), 0.0, 1.0)
+	var enemy_meter_rect := Rect2(rect.position + Vector2(62.0, 13.0), Vector2(42.0, 3.0))
+	draw_rect(enemy_meter_rect, Color(0.04, 0.045, 0.04, 0.9))
+	draw_rect(Rect2(enemy_meter_rect.position, Vector2(enemy_meter_rect.size.x * enemy_meter_ratio, enemy_meter_rect.size.y)), enemy_color)
+	var breeding_rect := Rect2(rect.position + Vector2(108.0, 13.0), Vector2(30.0, 3.0))
 	draw_rect(breeding_rect, Color(0.04, 0.045, 0.04, 0.9))
 	if bool(breeding.get("active", false)):
 		draw_rect(Rect2(breeding_rect.position, Vector2(breeding_rect.size.x * clampf(float(breeding.get("next_ratio", 0.0)), 0.0, 1.0), breeding_rect.size.y)), breeding_color)
-	draw_string(ThemeDB.fallback_font, rect.position + Vector2(6.0, 10.0), side_text, HORIZONTAL_ALIGNMENT_LEFT, 58.0, 8, side_color)
-	draw_string(ThemeDB.fallback_font, rect.position + Vector2(66.0, 10.0), breeding_text, HORIZONTAL_ALIGNMENT_LEFT, 42.0, 8, breeding_color)
-	draw_string(ThemeDB.fallback_font, rect.position + Vector2(112.0, 10.0), center_text, HORIZONTAL_ALIGNMENT_LEFT, 50.0, 8, Color(0.78, 0.88, 1.0, 0.92))
-	draw_string(ThemeDB.fallback_font, rect.position + Vector2(164.0, 10.0), reward_text, HORIZONTAL_ALIGNMENT_LEFT, 58.0, 8, Color(0.9, 0.86, 0.58, 0.92))
+	draw_string(ThemeDB.fallback_font, rect.position + Vector2(6.0, 10.0), side_text, HORIZONTAL_ALIGNMENT_LEFT, 54.0, 8, side_color)
+	draw_string(ThemeDB.fallback_font, rect.position + Vector2(62.0, 10.0), enemy_text, HORIZONTAL_ALIGNMENT_LEFT, 44.0, 8, enemy_color)
+	draw_string(ThemeDB.fallback_font, rect.position + Vector2(108.0, 10.0), breeding_text, HORIZONTAL_ALIGNMENT_LEFT, 34.0, 8, breeding_color)
+	draw_string(ThemeDB.fallback_font, rect.position + Vector2(144.0, 10.0), center_text, HORIZONTAL_ALIGNMENT_LEFT, 44.0, 8, Color(0.78, 0.88, 1.0, 0.92))
+	draw_string(ThemeDB.fallback_font, rect.position + Vector2(190.0, 10.0), reward_text, HORIZONTAL_ALIGNMENT_LEFT, 32.0, 8, Color(0.9, 0.86, 0.58, 0.92))
 
 func _side_objective_text(side: Dictionary) -> String:
 	var action := String(side.get("action", "breed")).to_upper()
@@ -293,17 +309,21 @@ func _draw_pill(rect: Rect2, text: String, color: Color) -> void:
 func _state_label(row: Dictionary) -> String:
 	if bool(row.get("active", false)):
 		return "ON"
+	if bool(row.get("deposit_ready", false)):
+		return "RDY"
 	match String(row.get("state", "field")):
 		"respawning":
 			return "KO"
 		"exhausted":
 			return "OUT"
 		_:
-			return "OK"
+			return "H%d" % int(round(float(row.get("hunger_ratio", 0.0)) * 100.0))
 
 func _state_color(row: Dictionary) -> Color:
 	if bool(row.get("active", false)):
 		return Color(0.68, 0.9, 1.0, 0.96)
+	if bool(row.get("deposit_ready", false)):
+		return Color(0.55, 1.0, 0.6, 0.96)
 	match String(row.get("state", "field")):
 		"respawning":
 			return Color(1.0, 0.76, 0.32, 0.96)

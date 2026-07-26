@@ -43,6 +43,7 @@ func _check_unken_reflex(arena: Node, failures: Array[String]) -> void:
 	var actor: Node = arena.player
 	var attacker: Node = arena.bots[0]
 	attacker.apply_creature("mink")
+	attacker.break_stealth()
 	actor.global_position = Vector2.ZERO
 	attacker.global_position = Vector2(22.0, 0.0)
 	attacker.health = attacker.max_health

@@ -2,6 +2,8 @@ extends SceneTree
 
 const ARENA_SCENE := "res://scenes/Arena.tscn"
 const InputFrameScript := preload("res://scripts/sim/input_frame.gd")
+const FireflyProjectileScript := preload("res://scripts/sim/entities/firefly_projectile.gd")
+const FoodSourceScript := preload("res://scripts/game/food_source.gd")
 
 func _initialize() -> void:
 	_run.call_deferred()
@@ -29,6 +31,7 @@ func _run() -> void:
 	_check_bioluminescence_and_flash(arena, failures)
 	_check_hover_flash_render(arena, failures)
 	_check_reveal_projectile(arena, failures)
+	_check_projectile_harvest(arena, failures)
 	_check_glowworms(arena, failures)
 	_check_bot_hook(arena, failures)
 
@@ -42,6 +45,7 @@ func _check_bioluminescence_and_flash(arena: Node, failures: Array[String]) -> v
 	var ally: Node = arena.player_squad[1]
 	actor.global_position = Vector2.ZERO
 	ally.global_position = Vector2.RIGHT * 56.0
+	ally.modifiers.clear()
 	ally.health = ally.max_health - 80.0
 	actor.kit.flash_timer = 0.0
 	actor.set_input_frame(InputFrameScript.new())
@@ -126,6 +130,47 @@ func _check_reveal_projectile(arena: Node, failures: Array[String]) -> void:
 			target.health,
 			actor.kit.projectiles.size()
 		])
+
+func _check_projectile_harvest(arena: Node, failures: Array[String]) -> void:
+	var actor: Node = arena.player
+	actor.apply_creature("firefly")
+	actor.hunger = 40.0
+	actor.hunger_satiated = false
+	actor.global_position = Vector2(-5000.0, -5000.0)
+	var tree := FoodSourceScript.new()
+	arena.add_child(tree)
+	tree.setup_from_entry({
+		"kind": FoodSourceScript.KIND_PLANT,
+		"plant_type": FoodSourceScript.PLANT_TREE,
+		"position": actor.global_position + Vector2.RIGHT * 40.0,
+		"harvest_hits": 3,
+		"food_value": 44.0,
+		"heal_fraction": 0.16
+	})
+	arena.food_sources.append(tree)
+
+	var remaining_after_sparks: Array[int] = []
+	for _spark_index in 3:
+		var projectile := FireflyProjectileScript.new()
+		arena.add_child(projectile)
+		projectile.setup(arena, actor, tree.global_position, Vector2.RIGHT, 100.0, 3.0)
+		projectile._hit_scan()
+		projectile._hit_scan()
+		remaining_after_sparks.append(int(tree.harvest_hits_remaining))
+		projectile.queue_free()
+
+	var harvested_once_per_spark: bool = remaining_after_sparks == [2, 1, 0]
+	var consumed_through_arena: bool = not arena.food_sources.has(tree) and actor.hunger > 40.0
+	if not harvested_once_per_spark or not consumed_through_arena:
+		failures.append("Firefly Spark should use shared circle harvesting once per projectile and complete a three-hit tree in three sparks; remaining=%s consumed=%s hunger=%.2f" % [
+			str(remaining_after_sparks),
+			str(consumed_through_arena),
+			actor.hunger
+		])
+	if arena.food_sources.has(tree):
+		arena.food_sources.erase(tree)
+	if is_instance_valid(tree):
+		tree.queue_free()
 
 func _check_glowworms(arena: Node, failures: Array[String]) -> void:
 	var actor: Node = arena.player

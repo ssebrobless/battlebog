@@ -2,6 +2,7 @@ extends RefCounted
 
 const SimConstants := preload("res://scripts/sim/sim_constants.gd")
 const EnvironmentProfileScript := preload("res://scripts/sim/environment_profile.gd")
+const MatchRulesScript := preload("res://scripts/game/match_rules.gd")
 
 const LAND := "land"
 const SHALLOW := "shallow"
@@ -11,7 +12,8 @@ const HABITAT_BLUE := "habitat_blue"
 const HABITAT_RED := "habitat_red"
 const PERCH_ANCHOR_RADIUS_UNITS := 2.75
 
-var mode := "3v3"
+var mode := MatchRulesScript.RULESET_COMPETITIVE_3V3
+var rules_snapshot: Dictionary = MatchRulesScript.competitive_3v3()
 var zone_layers: Array[Dictionary] = []
 var perch_anchors: Array[Vector2] = []
 var arena_rect := Rect2()
@@ -31,11 +33,28 @@ var environmental_obstacles: Array = []
 var land_bridge_rects: Array[Rect2] = []
 var water_body_rect_groups: Array = []
 
-func configure(next_mode: String) -> void:
-	mode = next_mode
+func configure(next_config: Variant) -> void:
+	var resolved_rules := _resolve_rules(next_config)
+	if resolved_rules.is_empty():
+		push_error("TerrainMap rejected invalid match rules")
+		return
+	rules_snapshot = resolved_rules.duplicate(true)
+	mode = String(rules_snapshot.get("id", ""))
 	_configure_unified_map()
 	_rebuild_water_body_groups()
 	_rebuild_perch_anchors()
+
+func _resolve_rules(next_config: Variant) -> Dictionary:
+	if typeof(next_config) == TYPE_DICTIONARY:
+		var supplied_rules: Dictionary = next_config
+		if MatchRulesScript.validate_rules(supplied_rules).is_empty():
+			return supplied_rules.duplicate(true)
+		return {}
+	var legacy_mode := String(next_config)
+	if legacy_mode == "Hero Lab":
+		return MatchRulesScript.competitive_3v3()
+	var adapter := MatchRulesScript.for_legacy_mode(legacy_mode)
+	return adapter.get("rules", {}).duplicate(true) if not adapter.is_empty() else {}
 
 func get_zone_at(point: Vector2) -> String:
 	for i in range(zone_layers.size() - 1, -1, -1):
@@ -239,16 +258,17 @@ func _configure_unified_map() -> void:
 	food_spawn_points = _build_unified_food_spawns()
 
 func _build_unified_wave_minion_offsets(unit: float) -> Array[Vector2]:
-	if mode == "1v1":
-		return [Vector2(0.0, -5.0 * unit), Vector2(0.0, 5.0 * unit)]
-	return [Vector2(0.0, -8.0 * unit), Vector2.ZERO, Vector2(0.0, 8.0 * unit)]
+	var count := int(rules_snapshot.get("lane_minions_per_hut", 0))
+	if count == 3:
+		return [Vector2(0.0, -8.0 * unit), Vector2.ZERO, Vector2(0.0, 8.0 * unit)]
+	push_error("Unsupported lane minion count in map profile: %d" % count)
+	return []
 
 func _build_unified_hut_positions(unit: float) -> Dictionary:
-	if mode == "1v1":
-		return {
-			0: [Vector2(-198.0 * unit, 0.0)],
-			1: [Vector2(198.0 * unit, 0.0)]
-		}
+	var hut_count := int(rules_snapshot.get("hut_count_per_team", 0))
+	if hut_count != 2:
+		push_error("Unsupported hut count in map profile: %d" % hut_count)
+		return {}
 	return {
 		0: [Vector2(-198.0 * unit, -34.0 * unit), Vector2(-198.0 * unit, 34.0 * unit)],
 		1: [Vector2(198.0 * unit, -34.0 * unit), Vector2(198.0 * unit, 34.0 * unit)]

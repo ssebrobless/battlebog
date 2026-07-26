@@ -36,29 +36,26 @@ class StubArena extends Node2D:
 		return null
 
 func _initialize() -> void:
-	# Terrain declares shared-map hut anchors: 2/side in 3v3, 1 centered
-	# lane/side in M8 1v1 tuning.
+	# The legacy 1v1 adapter uses the same competitive hut and wave layout as
+	# 3v3: two lane huts per side and three minion offsets per surviving hut.
 	var terrain := TerrainMapScript.new()
 	var unit := SimConstants.UNIT_PX
 	terrain.configure("3v3")
-	var huts_3v3: bool = terrain.hut_positions[0].size() == 2 \
+	var competitive_huts: bool = terrain.hut_positions[0].size() == 2 \
 		and terrain.hut_positions[1].size() == 2 \
 		and terrain.hut_positions[0][0] / unit == Vector2(-198.0, -34.0) \
 		and terrain.hut_positions[0][1] / unit == Vector2(-198.0, 34.0) \
 		and terrain.hut_positions[1][0] / unit == Vector2(198.0, -34.0) \
 		and terrain.hut_positions[1][1] / unit == Vector2(198.0, 34.0)
-	var waves_3v3: bool = terrain.wave_minion_offsets.size() == 3 \
+	var competitive_wave_offsets: bool = terrain.wave_minion_offsets.size() == 3 \
 		and terrain.wave_minion_offsets[0] / unit == Vector2(0.0, -8.0) \
 		and terrain.wave_minion_offsets[1] == Vector2.ZERO \
 		and terrain.wave_minion_offsets[2] / unit == Vector2(0.0, 8.0)
+	var expected_hut_positions: Dictionary = terrain.hut_positions.duplicate(true)
+	var expected_wave_offsets: Array[Vector2] = terrain.wave_minion_offsets.duplicate()
 	terrain.configure("1v1")
-	var huts_1v1: bool = terrain.hut_positions[0].size() == 1 \
-		and terrain.hut_positions[1].size() == 1 \
-		and terrain.hut_positions[0][0] / unit == Vector2(-198.0, 0.0) \
-		and terrain.hut_positions[1][0] / unit == Vector2(198.0, 0.0)
-	var waves_1v1: bool = terrain.wave_minion_offsets.size() == 2 \
-		and terrain.wave_minion_offsets[0] / unit == Vector2(0.0, -5.0) \
-		and terrain.wave_minion_offsets[1] / unit == Vector2(0.0, 5.0)
+	var legacy_hut_parity: bool = terrain.hut_positions == expected_hut_positions
+	var legacy_wave_parity: bool = terrain.wave_minion_offsets == expected_wave_offsets
 
 	var stub := StubArena.new()
 	get_root().add_child(stub)
@@ -159,9 +156,9 @@ func _initialize() -> void:
 		and float(melee_style.get("visual_radius_px", 99.0)) < float(melee_style.get("combat_radius_px", 0.0)) \
 		and float(lane_style.get("visual_radius_px", 99.0)) < float(lane_style.get("combat_radius_px", 0.0))
 
-	var passed := huts_3v3 and huts_1v1 and waves_3v3 and waves_1v1 and squad_ok and patrol_radius_ok and respawn_ok and destroy_ok and kinds_ok and minion_visual_ok and hut_color_ok and hut_visual_ok
-	print("m4 huts3v3=%s huts1v1=%s waves3v3=%s waves1v1=%s squad=%s patrol=%s respawn=%s destroy=%s kinds=%s visual=%s hut_color=%s hut_visual=%s" % [
-		str(huts_3v3), str(huts_1v1), str(waves_3v3), str(waves_1v1), str(squad_ok), str(patrol_radius_ok), str(respawn_ok), str(destroy_ok), str(kinds_ok), str(minion_visual_ok), str(hut_color_ok), str(hut_visual_ok)
+	var passed := competitive_huts and competitive_wave_offsets and legacy_hut_parity and legacy_wave_parity and squad_ok and patrol_radius_ok and respawn_ok and destroy_ok and kinds_ok and minion_visual_ok and hut_color_ok and hut_visual_ok
+	print("m4 competitive_huts=%s competitive_waves=%s legacy_hut_parity=%s legacy_wave_parity=%s squad=%s patrol=%s respawn=%s destroy=%s kinds=%s visual=%s hut_color=%s hut_visual=%s" % [
+		str(competitive_huts), str(competitive_wave_offsets), str(legacy_hut_parity), str(legacy_wave_parity), str(squad_ok), str(patrol_radius_ok), str(respawn_ok), str(destroy_ok), str(kinds_ok), str(minion_visual_ok), str(hut_color_ok), str(hut_visual_ok)
 	])
 	quit(0 if passed else 1)
 

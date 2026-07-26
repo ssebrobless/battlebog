@@ -23,6 +23,9 @@ const HeronHook := preload("res://scripts/ai/bot_kit_hooks/great_blue_heron_bot.
 const KingfisherHook := preload("res://scripts/ai/bot_kit_hooks/kingfisher_bot.gd")
 const DuckHook := preload("res://scripts/ai/bot_kit_hooks/duck_bot.gd")
 const TargetFilter := preload("res://scripts/sim/combat/target_filter.gd")
+const ActorGoalSelectorScript := preload("res://scripts/ai/actor_goal_selector.gd")
+const TeamDirectorScript := preload("res://scripts/ai/team_director.gd")
+const PerfStats := preload("res://scripts/game/perf_stats.gd")
 
 const FIGHT_SCAN_RANGE := 620.0
 const RETREAT_HEALTH_RATIO := 0.28
@@ -38,17 +41,38 @@ var sticky_targets := {}
 var retreating_actors := {}
 var intent_cache := {}
 var intent_cache_frames := {}
+var goal_selector: RefCounted = ActorGoalSelectorScript.new()
 
-func build_frame(actor: Node) -> Resource:
+func build_frame(actor: Node, allow_autonomous_deposit := true, order: Dictionary = {}) -> Resource:
 	var frame := InputFrameScript.new()
 	if actor == null or actor.arena == null:
 		frame.move = Vector2.ZERO
 		return frame
 
-	var intent := _cached_intent(actor)
+	var perf_intent_start := Time.get_ticks_usec() if PerfStats.enabled else 0
+	var intent: Dictionary = _cached_intent(actor, allow_autonomous_deposit)
+	if PerfStats.enabled:
+		PerfStats.add("bot_intent", int(Time.get_ticks_usec() - perf_intent_start))
+	var intent_mode := String(intent.get("mode", ""))
+	var order_source := String(order.get("source", ""))
+	var valid_order := _order_is_valid(actor, order)
+	if intent_mode != "retreat" and valid_order and order_source == "player":
+		var player_order_frame := _order_frame(actor, order)
+		if player_order_frame != null:
+			return player_order_frame
+	var actor_priority_goal := _is_return_goal(intent) \
+		or intent_mode == ActorGoalSelectorScript.GOAL_FORAGE
+	if intent_mode != "retreat" and not actor_priority_goal and valid_order:
+		var director_order_frame := _order_frame(actor, order)
+		if director_order_frame != null:
+			return director_order_frame
 	var target: Node = intent.get("target", null)
 	var point: Vector2 = intent.get("point", actor.global_position + Vector2.RIGHT)
 	var mode := String(intent.get("mode", "idle"))
+	if mode == ActorGoalSelectorScript.GOAL_DEPOSIT or mode == ActorGoalSelectorScript.GOAL_RETURN_READY:
+		return _deposit_frame(actor, intent)
+	if mode == ActorGoalSelectorScript.GOAL_FORAGE:
+		return _forage_frame(actor, intent)
 	var target_position: Vector2 = target.global_position if _valid_target(target) else point
 	if mode == "retreat":
 		target_position = point
@@ -71,21 +95,64 @@ func build_frame(actor: Node) -> Resource:
 		_hook(actor).apply(actor, target, frame, distance)
 	return frame
 
-func _cached_intent(actor: Node) -> Dictionary:
+
+func get_goal_snapshot(actor: Node, allow_autonomous_deposit := true) -> Dictionary:
+	if actor == null or not is_instance_valid(actor):
+		return {}
+	var intent := _cached_intent(actor, allow_autonomous_deposit)
+	var target: Node = intent.get("target", null)
+	var observation: Dictionary = intent.get("food", {})
+	return {
+		"goal": String(intent.get("mode", "idle")),
+		"target_id": target.get_instance_id() if target != null and is_instance_valid(target) else 0,
+		"destination": intent.get("point", actor.global_position),
+		"information_state": String(observation.get("state", "visible" if target != null else "none"))
+	}
+
+
+func reset_actor(actor: Node) -> void:
+	if actor == null or not is_instance_valid(actor):
+		return
 	var key := int(actor.get_instance_id())
-	var frame_index := Engine.get_physics_frames()
+	sticky_targets.erase(key)
+	retreating_actors.erase(key)
+	intent_cache.erase(key)
+	intent_cache_frames.erase(key)
+	if goal_selector.has_method("reset_actor"):
+		goal_selector.reset_actor(actor)
+
+func _cached_intent(actor: Node, allow_autonomous_deposit := true) -> Dictionary:
+	var key := int(actor.get_instance_id())
+	var frame_index := _simulation_tick(actor)
 	var cached: Dictionary = intent_cache.get(key, {})
 	var cached_frame := int(intent_cache_frames.get(key, -TARGET_QUERY_REFRESH_FRAMES * 2))
-	if _cached_intent_valid(actor, cached, frame_index - cached_frame):
+	if _cached_intent_valid(actor, cached, frame_index - cached_frame, allow_autonomous_deposit):
 		return cached
-	var intent := _choose_intent(actor)
+	var intent := _choose_intent(actor, allow_autonomous_deposit)
+	intent["_allow_autonomous_deposit"] = allow_autonomous_deposit
 	intent_cache[key] = intent
 	intent_cache_frames[key] = frame_index
 	return intent
 
-func _cached_intent_valid(actor: Node, intent: Dictionary, age_frames: int) -> bool:
+func _simulation_tick(actor: Node) -> int:
+	if actor != null and is_instance_valid(actor) and actor.get("arena") != null:
+		var arena: Node = actor.get("arena")
+		if arena.has_method("get_simulation_tick"):
+			return int(arena.get_simulation_tick())
+	return Engine.get_physics_frames()
+
+func _cached_intent_valid(actor: Node, intent: Dictionary, age_frames: int, allow_autonomous_deposit := true) -> bool:
 	if intent.is_empty() or age_frames >= TARGET_QUERY_REFRESH_FRAMES:
 		return false
+	if bool(intent.get("_allow_autonomous_deposit", true)) != allow_autonomous_deposit:
+		return false
+	var mode := String(intent.get("mode", ""))
+	if mode in [
+		ActorGoalSelectorScript.GOAL_DEPOSIT,
+		ActorGoalSelectorScript.GOAL_RETURN_READY,
+		ActorGoalSelectorScript.GOAL_FORAGE
+	]:
+		return goal_selector.goal_is_valid(actor, intent)
 	var target: Node = intent.get("target", null)
 	if target != null and not TargetFilter.is_live_damage_target(actor, target, {"require_damage_api": false}):
 		return false
@@ -95,8 +162,38 @@ func _cached_intent_valid(actor: Node, intent: Dictionary, age_frames: int) -> b
 		return false
 	return true
 
-func _choose_intent(actor: Node) -> Dictionary:
-	var close_threat: Node = _closest_live_enemy(actor, RETREAT_THREAT_RANGE)
+func _choose_intent(actor: Node, allow_autonomous_deposit := true) -> Dictionary:
+	var candidates := _target_candidates(actor)
+	var retreat_intent := _retreat_intent(actor, candidates)
+	if not retreat_intent.is_empty():
+		return retreat_intent
+
+	var actor_goal: Dictionary = goal_selector.choose_goal(actor, allow_autonomous_deposit)
+	if not actor_goal.is_empty():
+		return actor_goal
+
+	var defense: Dictionary = _defense_intent(actor, candidates)
+	if not defense.is_empty():
+		return defense
+
+	var target_intent := _best_target_intent(actor, candidates)
+	if not target_intent.is_empty():
+		return target_intent
+
+	var investigate := _investigate_intent(actor)
+	if not investigate.is_empty():
+		return investigate
+
+	return {"mode": "idle", "point": actor.global_position + Vector2.RIGHT}
+
+
+func _retreat_intent(actor: Node, candidates: Variant = null) -> Dictionary:
+	var visible_candidates: Array[Node] = candidates if candidates is Array else _target_candidates(actor)
+	var close_threat: Node = _closest_candidate_to_point(
+		visible_candidates,
+		actor.global_position,
+		RETREAT_THREAT_RANGE
+	)
 	var health_ratio := _health_ratio(actor)
 	var should_retreat := close_threat != null and (
 		health_ratio <= RETREAT_HEALTH_RATIO or (
@@ -111,20 +208,161 @@ func _choose_intent(actor: Node) -> Dictionary:
 			"point": _retreat_point(actor)
 		}
 	_set_retreating(actor, false)
+	return {}
 
-	var defense: Dictionary = _defense_intent(actor)
-	if not defense.is_empty():
-		return defense
 
-	var target_intent := _best_target_intent(actor)
-	if not target_intent.is_empty():
-		return target_intent
+func _is_return_goal(goal: Dictionary) -> bool:
+	return String(goal.get("mode", "")) in [
+		ActorGoalSelectorScript.GOAL_DEPOSIT,
+		ActorGoalSelectorScript.GOAL_RETURN_READY
+	]
 
-	var investigate := _investigate_intent(actor)
-	if not investigate.is_empty():
-		return investigate
 
-	return {"mode": "idle", "point": actor.global_position + Vector2.RIGHT}
+func _order_frame(actor: Node, order: Dictionary) -> Resource:
+	var role := String(order.get("role", ""))
+	if role.is_empty():
+		return null
+	var destination: Vector2 = order.get("destination", actor.global_position)
+	var target: Node = null
+	match role:
+		"follow":
+			target = _actor_for_slot_id(actor, String(order.get("follow_slot_id", "")))
+			if _valid_follow_target(actor, target):
+				destination = target.global_position
+			return _travel_frame(actor, destination, float(order.get("hold_radius", 80.0)), destination)
+		"aggro":
+			target = _actor_for_slot_id(actor, String(order.get("aggro_slot_id", "")))
+			if not _valid_order_target(actor, target) or not _can_perceive(actor, target):
+				var follow_actor := _actor_for_slot_id(actor, String(order.get("follow_slot_id", "")))
+				if _valid_follow_target(actor, follow_actor):
+					destination = follow_actor.global_position
+				return _travel_frame(actor, destination, float(order.get("hold_radius", 80.0)), destination)
+		"fight_boss":
+			if actor.arena.has_method("get_live_objective_actor"):
+				target = actor.arena.get_live_objective_actor(String(order.get("objective_id", "")))
+		"defend":
+			target = _closest_enemy_near_point(actor, destination, DEFEND_HUT_RADIUS)
+		"contest":
+			target = _closest_enemy_near_point(
+				actor,
+				destination,
+				maxf(float(order.get("hold_radius", 80.0)) * 1.5, 80.0)
+			)
+		"pressure_lane":
+			target = goal_selector.world_view.nearest_visible_enemy(actor, FIGHT_SCAN_RANGE)
+	if _valid_order_target(actor, target) and _can_perceive(actor, target):
+		return _order_combat_frame(actor, target, bool(order.get("allow_abilities", false)))
+	return _travel_frame(
+		actor,
+		destination,
+		float(order.get("hold_radius", 80.0)),
+		destination
+	)
+
+
+func _order_combat_frame(actor: Node, target: Node, allow_abilities: bool) -> Resource:
+	var frame := InputFrameScript.new()
+	var target_position: Vector2 = target.global_position
+	var offset: Vector2 = target_position - actor.global_position
+	var distance: float = offset.length()
+	var direction := offset.normalized() if distance > 0.001 else Vector2.RIGHT
+	frame.aim = target_position
+	var target_radius := _target_radius(target)
+	var hold_range := _preferred_range(actor) + target_radius
+	frame.move = _steered_move(actor, target_position, direction) if distance > hold_range else _strafe_direction(direction, actor.team)
+	frame.set_button(InputFrameScript.BUTTON_PRIMARY, distance <= _preferred_range(actor) + actor.body_radius * 1.5 + target_radius)
+	var ability_target: bool = target.has_method("is_scored_actor") and target.is_scored_actor()
+	ability_target = ability_target or (
+		target.has_method("is_boss_actor") and target.is_boss_actor()
+	)
+	if allow_abilities and ability_target:
+		_hook(actor).apply(actor, target, frame, distance)
+	return frame
+
+
+func _travel_frame(actor: Node, destination: Vector2, hold_radius: float, aim: Vector2) -> Resource:
+	var frame := InputFrameScript.new()
+	frame.aim = aim
+	var offset: Vector2 = destination - actor.global_position
+	if offset.length() > hold_radius:
+		frame.move = _steered_move(actor, destination, offset.normalized())
+	return frame
+
+
+func _actor_for_slot_id(actor: Node, slot_id: String) -> Node:
+	if actor.arena != null and actor.arena.has_method("get_actor_for_slot_id"):
+		return actor.arena.get_actor_for_slot_id(slot_id)
+	return null
+
+
+func _order_is_valid(actor: Node, order: Dictionary) -> bool:
+	if order.is_empty() \
+		or String(order.get("schema", "")) != TeamDirectorScript.SCHEMA \
+		or int(order.get("team", -1)) != int(actor.team):
+		return false
+	if actor.arena == null or actor.arena.get("slot_registry") == null:
+		return false
+	var slot: Dictionary = actor.arena.slot_registry.get_slot_for_actor(actor)
+	if String(slot.get("slot_id", "")) != String(order.get("slot_id", "")):
+		return false
+	var current_epoch := int(actor.arena.get("team_director_epoch"))
+	return int(order.get("epoch", -1)) == current_epoch \
+		and int(order.get("issued_epoch", current_epoch + 1)) <= current_epoch \
+		and int(order.get("lease_until_epoch", current_epoch - 1)) >= current_epoch
+
+
+func _valid_follow_target(actor: Node, target: Node) -> bool:
+	return target != null \
+		and is_instance_valid(target) \
+		and target.get("team") != null \
+		and int(target.get("team")) == int(actor.team) \
+		and (not target.has_method("is_alive") or target.is_alive())
+
+
+func _valid_order_target(actor: Node, target: Node) -> bool:
+	return TargetFilter.is_live_damage_target(actor, target, {
+		"require_damage_api": false,
+		"allow_wildlife": true
+	})
+
+
+func _deposit_frame(actor: Node, intent: Dictionary) -> Resource:
+	var frame := InputFrameScript.new()
+	var point: Vector2 = intent.get("point", actor.global_position)
+	frame.aim = point
+	var habitat: Rect2 = intent.get("habitat", Rect2())
+	if String(intent.get("mode", "")) == ActorGoalSelectorScript.GOAL_DEPOSIT \
+		and habitat.size.x > 0.0 \
+		and habitat.size.y > 0.0 \
+		and habitat.grow(16.0).has_point(actor.global_position):
+		frame.set_button(InputFrameScript.BUTTON_HABITAT_DEPOSIT, true)
+		return frame
+	var offset: Vector2 = point - actor.global_position
+	if offset.length() > 4.0:
+		frame.move = _steered_move(actor, point, offset.normalized())
+	return frame
+
+
+func _forage_frame(actor: Node, intent: Dictionary) -> Resource:
+	var frame := InputFrameScript.new()
+	var observation: Dictionary = intent.get("food", {})
+	var point: Vector2 = observation.get("point", intent.get("point", actor.global_position))
+	frame.aim = point
+	var resource: Node = observation.get("resource", null)
+	var resource_radius := 0.0
+	if resource != null and is_instance_valid(resource) and resource.get("body_radius") != null:
+		resource_radius = float(resource.get("body_radius"))
+	var requires_attack := bool(observation.get("requires_attack", false))
+	var hold_radius := float(actor.body_radius) + resource_radius + 4.0
+	if requires_attack:
+		hold_radius = _preferred_range(actor) + float(actor.body_radius) * 1.5 + resource_radius
+	var distance: float = actor.global_position.distance_to(point)
+	if distance > hold_radius:
+		var offset: Vector2 = point - actor.global_position
+		frame.move = _steered_move(actor, point, offset.normalized() if offset.length() > 0.001 else Vector2.RIGHT)
+	elif requires_attack and String(observation.get("state", "")) == "visible":
+		frame.set_button(InputFrameScript.BUTTON_PRIMARY, true)
+	return frame
 
 # No visible target: move toward the nearest degraded marker for an enemy we lost sight of
 # (last_known) or currently only hear (heard). Heard markers are coarse, not live exact pos.
@@ -154,16 +392,17 @@ func _investigate_intent(actor: Node) -> Dictionary:
 		return {}
 	return {"mode": "investigate", "point": best_point}
 
-func _defense_intent(actor: Node) -> Dictionary:
+func _defense_intent(actor: Node, candidates: Variant = null) -> Dictionary:
 	if actor.arena.get("huts") == null:
 		return {}
+	var visible_candidates: Array[Node] = candidates if candidates is Array else _target_candidates(actor)
 	var best_enemy: Node = null
 	var best_hut: Node = null
 	var best_score: float = INF
 	for hut in actor.arena.huts:
 		if not _valid_target(hut) or hut.team != actor.team:
 			continue
-		var enemy: Node = _closest_enemy_near_point(actor, hut.global_position, DEFEND_HUT_RADIUS)
+		var enemy: Node = _closest_candidate_to_point(visible_candidates, hut.global_position, DEFEND_HUT_RADIUS)
 		if enemy == null:
 			continue
 		var distance_to_hut: float = actor.global_position.distance_to(hut.global_position)
@@ -183,12 +422,13 @@ func _defense_intent(actor: Node) -> Dictionary:
 		}
 	return {}
 
-func _best_target_intent(actor: Node) -> Dictionary:
+func _best_target_intent(actor: Node, candidates: Variant = null) -> Dictionary:
 	var best_target: Node = null
 	var best_mode := "fight"
 	var best_score := -INF
 	var sticky_target := _sticky_target(actor)
-	for candidate in _target_candidates(actor):
+	var visible_candidates: Array[Node] = candidates if candidates is Array else _target_candidates(actor)
+	for candidate in visible_candidates:
 		var score := _target_candidate_score(actor, candidate, sticky_target)
 		if score > best_score:
 			best_score = score
@@ -309,16 +549,17 @@ func _is_combatant_target(target: Node) -> bool:
 	return _has_property(target, "kind")
 
 func _closest_enemy_near_point(actor: Node, point: Vector2, radius: float) -> Node:
+	return _closest_candidate_to_point(_target_candidates(actor), point, radius)
+
+func _closest_candidate_to_point(candidates: Array[Node], point: Vector2, radius: float) -> Node:
 	var closest: Node = null
 	var closest_distance: float = radius
-	for entity in actor.arena.entities:
-		if not TargetFilter.is_live_damage_target(actor, entity, {"require_damage_api": false}):
+	for candidate: Node in candidates:
+		if candidate == null or not is_instance_valid(candidate):
 			continue
-		if not _can_perceive(actor, entity):
-			continue
-		var distance: float = entity.global_position.distance_to(point)
+		var distance: float = candidate.global_position.distance_to(point)
 		if distance < closest_distance:
-			closest = entity
+			closest = candidate
 			closest_distance = distance
 	return closest
 
@@ -379,7 +620,7 @@ func _health_ratio(target: Node) -> float:
 	return clampf(health / max_health, 0.0, 1.0)
 
 func _target_radius(target: Node) -> float:
-	if not _valid_target(target):
+	if target == null or not is_instance_valid(target):
 		return 0.0
 	if _has_property(target, "body_radius"):
 		return float(target.body_radius)

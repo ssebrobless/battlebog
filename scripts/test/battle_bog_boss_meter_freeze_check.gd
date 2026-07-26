@@ -58,8 +58,42 @@ func _check_meter_freeze(arena: Node, failures: Array[String]) -> void:
 	if bool(arena.get_side_boss_state(0).get("active", true)):
 		failures.append("blue boss should be inactive after its wildlife is defeated; state=%s" % str(arena.get_side_boss_state(0)))
 
-	# With the boss cleared, the meter resumes counting on the next breed.
+	# Downing does not resolve the objective. Claimable and contesting phases both
+	# remain locked so later breeds cannot overwrite an unfinished claim.
+	var claimable_state: Dictionary = arena.get_side_boss_state(0)
+	arena._record_bred_animal(0)
+	arena._record_bred_animal(0)
+	var claimable_frozen: Dictionary = arena.get_side_boss_state(0)
+	if String(claimable_state.get("objective_state", "")) != "claimable" \
+		or not arena.is_side_boss_meter_locked(0) \
+		or int(claimable_frozen.get("meter", -1)) != 0 \
+		or int(claimable_frozen.get("activations", -1)) != 1:
+		failures.append("blue meter should remain frozen through claimable; state=%s" % str(claimable_frozen))
+
+	var zone_index := -1
+	for i in arena.animal_zone_states.size():
+		if String(arena.animal_zone_states[i].get("id", "")) == "blue:Boss":
+			zone_index = i
+			break
+	if zone_index < 0:
+		failures.append("expected blue:Boss zone state for contest lock")
+		return
+	var zone: Dictionary = arena.animal_zone_states[zone_index]
+	zone["objective_state"] = "contesting"
+	arena.animal_zone_states[zone_index] = zone
+	arena._record_bred_animal(0)
+	arena._record_bred_animal(0)
+	var contesting_frozen: Dictionary = arena.get_side_boss_state(0)
+	if not arena.is_side_boss_meter_locked(0) \
+		or int(contesting_frozen.get("meter", -1)) != 0 \
+		or int(contesting_frozen.get("activations", -1)) != 1:
+		failures.append("blue meter should remain frozen through contesting; state=%s" % str(contesting_frozen))
+
+	# Once the claim resolves, the next breed starts the next cycle.
+	zone = arena.animal_zone_states[zone_index]
+	zone["objective_state"] = "claimed"
+	arena.animal_zone_states[zone_index] = zone
 	arena._record_bred_animal(0)
 	var resumed := int(arena.get_side_boss_state(0).get("meter", -1))
-	if resumed != 1:
-		failures.append("blue meter should resume to 1 after the boss is cleared; meter=%d" % resumed)
+	if arena.is_side_boss_meter_locked(0) or resumed != 1:
+		failures.append("blue meter should resume to 1 only after claim resolution; meter=%d" % resumed)
