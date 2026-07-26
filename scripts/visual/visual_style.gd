@@ -1083,12 +1083,10 @@ static func _base_bird(canvas: CanvasItem, radius: float, forward: Vector2, side
 			var transition_width := takeoff_flap_t * 0.28 + landing_flap_t * 0.34
 			var transition_forward := takeoff_flap_t * -0.18 + landing_flap_t * 0.18
 			var wing_tip := side * wing_side * radius * (1.9 + glide_width + transition_width - plunge_t * 0.45 - low_window_t * 0.32 - dart_tuck) + forward * radius * (0.1 + glide_forward + transition_forward + dart_forward + flap * wing_side * wing_side + plunge_t * 0.32 + low_window_t * 0.28)
-			canvas.draw_colored_polygon(PackedVector2Array([
-				forward * radius * 0.35 + side * wing_side * radius * 0.3,
-				wing_tip + forward * radius * (0.25 + flap),
-				wing_tip - forward * radius * 0.35,
-				-forward * radius * 0.45 + side * wing_side * radius * 0.3
-			]), Color(dark.r, dark.g, dark.b, 0.72 if owl_silent else 1.0))
+			canvas.draw_colored_polygon(
+				_bird_wing_points(radius, forward, side, wing_side, wing_tip, flap),
+				Color(dark.r, dark.g, dark.b, 0.72 if owl_silent else 1.0)
+			)
 			canvas.draw_line(forward * radius * 0.2 + side * wing_side * radius * 0.4, wing_tip, main.lightened(0.1), 2.0)
 			if takeoff_flap_t > 0.0 or landing_flap_t > 0.0:
 				var transition_color := Color(breast.r, breast.g, breast.b, 0.22 + maxf(takeoff_flap_t, landing_flap_t) * 0.16)
@@ -1284,6 +1282,23 @@ static func _base_bird(canvas: CanvasItem, radius: float, forward: Vector2, side
 		var strike_cue := Color(1.0, 0.86, 0.38, 0.32 * low_window_t)
 		canvas.draw_line(head_center + forward * radius * 0.3, head_center + forward * radius * (1.28 + 0.28 * low_window_t), strike_cue, maxf(radius * 0.12, 2.0))
 		canvas.draw_arc(Vector2.ZERO, radius * (1.0 + 0.16 * low_window_t), -PI * 0.15, PI * 1.15, 26, Color(strike_cue.r, strike_cue.g, strike_cue.b, strike_cue.a * 0.78), maxf(radius * 0.08, 1.4))
+
+static func _bird_wing_points(
+	radius: float,
+	forward: Vector2,
+	side: Vector2,
+	wing_side: float,
+	wing_tip: Vector2,
+	flap: float
+) -> PackedVector2Array:
+	var tip_leading_offset := maxf(-0.25, 0.25 + flap)
+	return PackedVector2Array([
+		forward * radius * 0.35 + side * wing_side * radius * 0.3,
+		wing_tip + forward * radius * tip_leading_offset,
+		wing_tip - forward * radius * 0.35,
+		-forward * radius * 0.45 + side * wing_side * radius * 0.3
+	])
+
 
 static func _base_serpent(canvas: CanvasItem, radius: float, forward: Vector2, side: Vector2, skin: Dictionary, walk_phase: float, moving: bool, anim: Dictionary = {}) -> void:
 	var main: Color = skin.get("main", Color(0.36, 0.26, 0.15))
