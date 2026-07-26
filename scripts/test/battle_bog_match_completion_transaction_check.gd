@@ -20,6 +20,22 @@ const ACTION_BUTTONS := (
 )
 
 
+class PhysicsFinishProbe extends CharacterBody2D:
+	var arena: Node = null
+	var ran := false
+	var moved_after_finish := false
+
+	func _physics_process(_delta: float) -> void:
+		if ran or arena == null:
+			return
+		ran = true
+		velocity = Vector2.RIGHT * 60.0
+		var before := global_position
+		arena._finish_match(TEST_WINNER, TEST_REASON, TEST_STATUS)
+		move_and_slide()
+		moved_after_finish = global_position != before
+
+
 func _initialize() -> void:
 	_run.call_deferred()
 
@@ -46,7 +62,7 @@ func _run() -> void:
 		return
 
 	var boot_ok := _check_fresh_match(arena, "initial boot", failures)
-	var finish_state: Dictionary = _finish_and_capture(arena, existing_logs, failures)
+	var finish_state: Dictionary = await _finish_and_capture(arena, existing_logs, failures)
 	var finish_ok := bool(finish_state.get("ok", false))
 	var freeze_ok := await _check_world_frozen(arena, finish_state, failures)
 	var restart_ok := await _check_ui_accept_restart(arena, failures)
@@ -95,8 +111,14 @@ func _finish_and_capture(
 		action_frame.buttons = ACTION_BUTTONS
 		actor.set_input_frame(action_frame)
 
-	arena.elapsed = 73.25
-	arena._finish_match(TEST_WINNER, TEST_REASON, TEST_STATUS)
+	# Arena advances elapsed before child physics callbacks.
+	arena.elapsed = 73.25 - (1.0 / 60.0)
+	var finish_probe := PhysicsFinishProbe.new()
+	finish_probe.arena = arena
+	arena.add_child(finish_probe)
+	await physics_frame
+	await process_frame
+	var physics_finish_ok := finish_probe.ran and finish_probe.moved_after_finish
 
 	var result: Dictionary = arena.get_match_result_state()
 	var result_panel: Node = arena.get("match_result_panel")
@@ -108,11 +130,12 @@ func _finish_and_capture(
 	var log_path := String(arena.get_last_match_summary_log_path())
 	var new_logs := _new_match_log_files(existing_logs)
 	var frozen_snapshot := _world_snapshot(arena)
-	var direct_children_disabled := true
+	var direct_children_stopped := true
 	for child: Node in arena.get_children():
-		direct_children_disabled = (
-			direct_children_disabled
-			and child.process_mode == Node.PROCESS_MODE_DISABLED
+		direct_children_stopped = (
+			direct_children_stopped
+			and not child.is_processing()
+			and not child.is_physics_processing()
 		)
 
 	var result_contract_ok := (
@@ -129,6 +152,14 @@ func _finish_and_capture(
 		and int(panel_state.get("red", {}).get("max_stocks", 0)) == 9
 	)
 	var neutral_ok := _all_actor_inputs_neutral(actors)
+	var post_finish_tick_ok := true
+	for actor: Node in actors:
+		var before_tick_position: Vector2 = actor.global_position
+		actor.tick_sim(1.0 / 60.0)
+		post_finish_tick_ok = (
+			post_finish_tick_ok
+			and actor.global_position == before_tick_position
+		)
 	var one_log_ok := (
 		not log_path.is_empty()
 		and FileAccess.file_exists(log_path)
@@ -167,14 +198,17 @@ func _finish_and_capture(
 		and idempotent_ok
 		and one_log_ok
 		and neutral_ok
-		and direct_children_disabled
+		and post_finish_tick_ok
+		and direct_children_stopped
+		and physics_finish_ok
 	)
 	if not ok:
 		failures.append(
 			(
 				"finish should capture one immutable/idempotent result, write exactly one log, "
-				+ "neutralize every registered actor, and disable direct child processing; "
-				+ "result_ok=%s immutable=%s idempotent=%s log=%s neutral=%s children=%s "
+				+ "neutralize every registered actor, stop direct child processing, and allow the "
+				+ "finishing physics callback to leave the physics space safely; "
+				+ "result_ok=%s immutable=%s idempotent=%s log=%s neutral=%s post_tick=%s children=%s physics_finish=%s "
 				+ "result=%s repeat=%s path=%s repeat_path=%s new_logs=%s"
 			)
 			% [
@@ -183,7 +217,9 @@ func _finish_and_capture(
 				str(idempotent_ok),
 				str(one_log_ok),
 				str(neutral_ok),
-				str(direct_children_disabled),
+				str(post_finish_tick_ok),
+				str(direct_children_stopped),
+				str(physics_finish_ok),
 				str(result),
 				str(idempotent_result),
 				log_path,
@@ -210,22 +246,30 @@ func _check_world_frozen(
 		await physics_frame
 	var after := _world_snapshot(arena)
 	var neutral_ok := _all_actor_inputs_neutral(_registered_actors(arena))
+	var children_disabled := true
+	for child: Node in arena.get_children():
+		children_disabled = (
+			children_disabled
+			and child.process_mode == Node.PROCESS_MODE_DISABLED
+		)
 	var ok := (
 		bool(arena.match_over)
 		and before == after
 		and neutral_ok
+		and children_disabled
 		and not arena.is_physics_processing()
 	)
 	if not ok:
 		failures.append(
 			(
 				"finished match must hold elapsed time, entity positions, health, and telemetry "
-				+ "constant across frames with neutral actor inputs; physics=%s neutral=%s "
+				+ "constant across frames with neutral actor inputs; physics=%s neutral=%s children=%s "
 				+ "before=%s after=%s"
 			)
 			% [
 				str(arena.is_physics_processing()),
 				str(neutral_ok),
+				str(children_disabled),
 				str(before),
 				str(after)
 			]

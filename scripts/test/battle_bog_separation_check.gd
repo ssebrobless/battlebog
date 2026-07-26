@@ -34,6 +34,7 @@ func _run() -> void:
 	_check_midpoint_invariant(arena, failures)
 	_check_repeated_resolution_deterministic(arena, failures)
 	_check_node2d_minion_separates(arena, failures)
+	_check_knocked_minion_exempt(arena, failures)
 	_check_minion_slots(arena, failures)
 	print("separation failures=%d" % failures.size())
 	for failure in failures:
@@ -199,6 +200,26 @@ func _check_node2d_minion_separates(arena: Node, failures: Array[String]) -> voi
 
 func _is_character_body(node: Node) -> bool:
 	return node is CharacterBody2D
+
+func _check_knocked_minion_exempt(arena: Node, failures: Array[String]) -> void:
+	var creature: Node = _two_creatures(arena)[0]
+	_normalize_grounded(creature, "snapping_turtle")
+	creature.global_position = Vector2(900.0, 300.0)
+	var minion := MinionScript.new()
+	arena.add_child(minion)
+	minion.setup(arena, 1, creature.global_position + Vector2.RIGHT, "melee")
+	minion.knockback_timer = 0.2
+	arena.register_entity(minion)
+	var gap_before: float = creature.global_position.distance_to(minion.global_position)
+	arena.resolve_body_separation()
+	var gap_after: float = creature.global_position.distance_to(minion.global_position)
+	if not is_equal_approx(gap_before, gap_after):
+		failures.append(
+			"minions in forced knockback should be exempt from soft separation "
+			+ "(gap %.2f -> %.2f)" % [gap_before, gap_after]
+		)
+	arena.unregister_entity(minion)
+	minion.queue_free()
 
 func _check_minion_slots(arena: Node, failures: Array[String]) -> void:
 	var target: Node = arena.bots[0]

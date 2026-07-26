@@ -288,6 +288,8 @@ func _process(delta: float) -> void:
 	_request_render_redraw()
 
 func tick_sim(delta: float) -> void:
+	if _match_is_over():
+		return
 	if not alive:
 		if arena != null and arena.has_method("uses_stock_respawn") and arena.uses_stock_respawn(self):
 			if arena.tick_stock_respawn(self, delta):
@@ -299,6 +301,8 @@ func tick_sim(delta: float) -> void:
 		return
 
 	_tick_timers(delta)
+	if not alive or _match_is_over():
+		return
 	_update_flight_toggle_edge()
 	flight_grounded_timer = maxf(flight_grounded_timer - delta, 0.0)
 	stealth_timer = maxf(stealth_timer - delta, 0.0)
@@ -307,19 +311,30 @@ func tick_sim(delta: float) -> void:
 	undamaged_timer += delta
 	_update_flight(delta)
 	_update_terrain(delta)
+	if not alive or _match_is_over():
+		return
 	_move_from_input(delta)
 	_update_body_heading(delta)
 	_tick_hunger(delta)
+	if not alive or _match_is_over():
+		return
 	_try_auto_eat()
 	_update_takeoff_charge_from_displacement(last_move_displacement_px)
 	_tick_latch(delta)
+	if _match_is_over():
+		return
 	if kit != null and kit.has_method("tick"):
 		var original_input_frame: Resource = input_frame
 		if input_frame != null and not can_use_abilities():
 			input_frame = _without_ability_buttons(input_frame)
 		kit.tick(self, delta)
 		input_frame = original_input_frame
+		if _match_is_over():
+			return
 	_commit_flight_toggle_edge()
+
+func _match_is_over() -> bool:
+	return arena != null and arena.get("match_over") == true
 
 func take_damage(amount: float, _source_team: int = -1, _source_actor: Node = null) -> void:
 	var event := DamageEventScript.new()

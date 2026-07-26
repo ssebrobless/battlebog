@@ -3805,6 +3805,9 @@ func _passes_over_bodies(body: Node) -> bool:
 	var dash_value: Variant = body.get("dash_timer")
 	if typeof(dash_value) == TYPE_FLOAT and float(dash_value) > 0.0:
 		return true
+	var knockback_value: Variant = body.get("knockback_timer")
+	if typeof(knockback_value) == TYPE_FLOAT and float(knockback_value) > 0.0:
+		return true
 	var pass_obstacles_value: Variant = body.get("pass_obstacles_timer")
 	if typeof(pass_obstacles_value) == TYPE_FLOAT and float(pass_obstacles_value) > 0.0:
 		return true
@@ -4570,8 +4573,17 @@ func _freeze_match_world() -> void:
 	switch_action_neutral_ticks.clear()
 	switch_release_mask = 0
 	for child: Node in get_children():
-		child.process_mode = Node.PROCESS_MODE_DISABLED
+		child.set_process(false)
+		child.set_physics_process(false)
 	set_physics_process(false)
+	call_deferred("_disable_match_world_children")
+
+func _disable_match_world_children() -> void:
+	if not match_over:
+		return
+	for child: Node in get_children():
+		if child != null and is_instance_valid(child):
+			child.process_mode = Node.PROCESS_MODE_DISABLED
 
 func _update_ui() -> void:
 	var blue_core = cores[BLUE]

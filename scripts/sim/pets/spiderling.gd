@@ -59,6 +59,8 @@ func retire() -> void:
 	queue_free()
 
 func _physics_process(delta: float) -> void:
+	if arena != null and arena.get("match_over") == true:
+		return
 	if _should_retire():
 		retire()
 		return

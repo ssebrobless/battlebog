@@ -40,6 +40,8 @@ var target_refresh_timer := 0.0
 var cached_target: Node = null
 var facing := Vector2.RIGHT
 var velocity := Vector2.ZERO
+var knockback_velocity := Vector2.ZERO
+var knockback_timer := 0.0
 var visual_walk_phase := 0.0
 var _last_render_signature := ""
 
@@ -87,6 +89,18 @@ func _tick_minion(delta: float) -> void:
 
 	attack_timer = maxf(attack_timer - delta, 0.0)
 	attack_commit_timer = maxf(attack_commit_timer - delta, 0.0)
+	if knockback_timer > 0.0:
+		var knockback_step := minf(delta, knockback_timer)
+		knockback_timer = maxf(knockback_timer - delta, 0.0)
+		velocity = knockback_velocity
+		global_position += knockback_velocity * knockback_step
+		if arena != null:
+			global_position = arena.resolve_body_position(global_position, body_radius)
+		if knockback_timer <= 0.0:
+			knockback_velocity = Vector2.ZERO
+			velocity = Vector2.ZERO
+		_request_redraw()
+		return
 	# Re-query targets on a timer, not every frame — O(n) scans are the cost.
 	target_refresh_timer -= delta
 	if target_refresh_timer <= 0.0:
@@ -188,6 +202,13 @@ func _move_toward_point(point: Vector2, delta := SimConstants.TICK_DELTA) -> voi
 		visual_walk_phase = wrapf(visual_walk_phase + delta * speed * 0.08, 0.0, TAU)
 	if arena != null:
 		global_position = arena.resolve_body_position(global_position, body_radius)
+
+func receive_knockback(direction: Vector2, distance_px: float, duration: float) -> void:
+	if direction == Vector2.ZERO:
+		return
+	knockback_velocity = direction.normalized() * (distance_px / maxf(duration, 0.01))
+	knockback_timer = maxf(duration, 0.01)
+
 
 func _is_enemy_core(target: Node) -> bool:
 	return arena != null and target == arena.get_enemy_core(team)
