@@ -41,6 +41,7 @@ const TeratornisCenterBossScript := preload("res://scripts/game/bosses/teratorni
 const BossCatalog := preload("res://scripts/game/bosses/boss_catalog.gd")
 const BreedingActorScript := preload("res://scripts/game/breeding_actor.gd")
 const VisualGrammar := preload("res://scripts/visual/visual_grammar.gd")
+const TelegraphGeometry := preload("res://scripts/visual/telegraph_geometry.gd")
 const MatchRulesScript := preload("res://scripts/game/match_rules.gd")
 const MatchSlotRegistryScript := preload("res://scripts/game/match_slot_registry.gd")
 const LegalWorldViewScript := preload("res://scripts/ai/legal_world_view.gd")
@@ -4304,10 +4305,13 @@ func _draw_windup_telegraph(telegraph: Dictionary, color: Color) -> void:
 	if actor == null or not is_instance_valid(actor):
 		return
 	var aim: Vector2 = telegraph.get("aim", Vector2.RIGHT)
-	if actor.get("last_aim_direction") != null:
-		aim = actor.last_aim_direction
-	if aim == Vector2.ZERO:
-		aim = Vector2.RIGHT
+	var actor_aim_value: Variant = actor.get("last_aim_direction")
+	if typeof(actor_aim_value) == TYPE_VECTOR2 \
+		and (actor_aim_value as Vector2).is_finite() \
+		and not (actor_aim_value as Vector2).is_zero_approx():
+		aim = actor_aim_value
+	if not aim.is_finite() or aim.is_zero_approx():
+		return
 	var duration: float = maxf(float(telegraph.get("duration", 0.01)), 0.01)
 	var remaining: float = float(telegraph.get("remaining", 0.0))
 	var progress := 1.0 - clampf(remaining / duration, 0.0, 1.0)
@@ -4320,23 +4324,28 @@ func _draw_swing_telegraph(telegraph: Dictionary, color: Color) -> void:
 	var actor = telegraph.get("actor", null)
 	var origin: Vector2 = actor.global_position if actor != null and is_instance_valid(actor) else telegraph.get("position", Vector2.ZERO)
 	var aim: Vector2 = telegraph.get("aim", Vector2.RIGHT)
-	if aim == Vector2.ZERO:
-		aim = Vector2.RIGHT
+	if not aim.is_finite() or aim.is_zero_approx():
+		return
 	var reach: float = float(telegraph.get("reach_px", 24.0))
 	_draw_cone(origin, aim.normalized(), reach, PI * 0.7, color)
 
 func _draw_cone(origin: Vector2, aim: Vector2, reach: float, spread: float, color: Color) -> void:
-	var points := PackedVector2Array()
-	points.append(origin)
-	var steps := 10
-	for i in range(steps + 1):
-		var t := float(i) / float(steps)
-		var angle := -spread * 0.5 + spread * t
-		points.append(origin + aim.rotated(angle) * reach)
+	var points := TelegraphGeometry.cone_polygon_points(origin, aim, reach, spread)
+	if points.is_empty():
+		return
 	var fill := color
 	fill.a *= 0.34
 	draw_colored_polygon(points, fill)
-	draw_arc(origin, reach, aim.angle() - spread * 0.5, aim.angle() + spread * 0.5, 18, color, 5.0)
+	var safe_spread := TelegraphGeometry.safe_cone_spread(spread)
+	draw_arc(
+		origin,
+		reach,
+		aim.angle() - safe_spread * 0.5,
+		aim.angle() + safe_spread * 0.5,
+		18,
+		color,
+		5.0
+	)
 
 func _draw_latch_countdown(telegraph: Dictionary, center: Vector2, color: Color) -> void:
 	var duration: float = maxf(float(telegraph.get("duration", 0.1)), 0.1)
