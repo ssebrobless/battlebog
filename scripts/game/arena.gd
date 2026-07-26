@@ -127,6 +127,7 @@ const BREEDING_BUFF_LABEL_BY_FAMILY := {
 const MATCH_SUMMARY_SCHEMA := "battle_bog_match_summary_v1"
 const MATCH_LOG_DIR := "user://battle_bog_match_logs"
 const ECONOMY_EVENT_LIMIT := 128
+const BOSS_LIFECYCLE_EVENT_LIMIT := 512
 const DEBUG_HURTBOX_OVERLAY := false
 
 var entities: Array[Node] = []
@@ -199,6 +200,9 @@ var economy_event_counts: Dictionary = {}
 var economy_first_event_sec: Dictionary = {}
 var economy_team_event_counts := {"blue": {}, "red": {}}
 var economy_team_first_event_sec := {"blue": {}, "red": {}}
+var balance_slot_telemetry: Dictionary = {}
+var boss_lifecycle_events: Array[Dictionary] = []
+var boss_lifecycle_event_sequence := 0
 var terrain_map: RefCounted = TerrainMapScript.new()
 var arena_rect := ARENA_RECT
 var cover_rects: Array = []
@@ -1403,6 +1407,7 @@ func _activate_side_boss_for_team(team: int) -> void:
 		zone["last_claim_notice"] = ""
 		_spawn_wildlife_for_zone(zone)
 		animal_zone_states[i] = zone
+		_record_boss_lifecycle_event(zone, "active", -1, "dormant")
 	add_objective_feed(
 		"%s boss awakens: %s - fight in %s boss zone" % [_team_name(team), family.capitalize(), side],
 		"fight",
@@ -1500,8 +1505,10 @@ func on_wildlife_defeated(encounter: Node, source_actor: Node = null) -> void:
 		if alive_occupants.is_empty() and defeat_team >= 0:
 			zone["cleared_team"] = defeat_team
 		if bool(zone.get("boss", false)) and alive_occupants.is_empty():
+			var previous_state := String(zone.get("objective_state", "active"))
 			zone["active"] = false
 			zone["objective_state"] = "claimable"
+			_record_boss_lifecycle_event(zone, "claimable", defeat_team, previous_state)
 			add_objective_feed(
 				"%s downed - hold the boss zone to claim" % String(zone.get("boss_family", "boss")).capitalize(),
 				"claim",
@@ -1621,12 +1628,15 @@ func _enemy_team(team: int) -> int:
 func _advance_boss_claim(zone: Dictionary, step: float) -> void:
 	# Contested -> nobody makes progress; a single controlling team accrues; an empty
 	# point decays back toward claimable. Ownership is by held presence, never last-hit.
+	var previous_state := String(zone.get("objective_state", "claimable"))
 	var control_team := int(zone.get("control_team", -1))
 	var contested := bool(zone.get("contested", false))
 	var progress := float(zone.get("claim_progress", 0.0))
 	var claim_team := int(zone.get("claim_team", -1))
 	if contested:
 		zone["objective_state"] = "contesting"
+		if previous_state != "contesting":
+			_record_boss_lifecycle_event(zone, "contested", -1, previous_state)
 		_emit_boss_claim_phase_feed(zone, "contest", -1)
 		return
 	if control_team < 0:
@@ -1638,8 +1648,12 @@ func _advance_boss_claim(zone: Dictionary, step: float) -> void:
 		zone["claim_progress"] = progress
 		zone["claim_team"] = claim_team
 		zone["objective_state"] = "claimable"
+		if previous_state == "contesting":
+			_record_boss_lifecycle_event(zone, "claimable", -1, previous_state)
 		return
 	zone["objective_state"] = "claimable"
+	if previous_state == "contesting":
+		_record_boss_lifecycle_event(zone, "claimable", control_team, previous_state)
 	if claim_team != control_team:
 		# A fresh team seized the point: progress restarts under them (no carry-over).
 		_emit_boss_claim_phase_feed(zone, "claim", control_team)
@@ -1698,12 +1712,16 @@ func _resolve_boss_claim(zone: Dictionary, team: int) -> void:
 	if bool(zone.get("center_boss", false)):
 		# Center bosses have no owner: whoever holds the point claims a combat reward, and
 		# they grant NO directed disruption (the map-wide fight already hit both teams).
+		var previous_state := String(zone.get("objective_state", "claimable"))
 		zone["objective_state"] = "claimed"
+		_record_boss_lifecycle_event(zone, "claimed", team, previous_state)
 		_record_team_actor_stat(team, "center_claims", 1)
 		_grant_center_reward(team, family)
 		return
 	var is_owner := team == _zone_owner_team(zone)
+	var previous_state := String(zone.get("objective_state", "claimable"))
 	zone["objective_state"] = "claimed" if is_owner else "stolen"
+	_record_boss_lifecycle_event(zone, String(zone["objective_state"]), team, previous_state)
 	_record_team_actor_stat(team, "boss_claims" if is_owner else "boss_steals", 1)
 	_grant_boss_reward(team, family, is_owner)
 	add_objective_feed(
@@ -1772,6 +1790,7 @@ func _spawn_center_boss(family: String) -> void:
 	}
 	animal_zone_states.append(zone)
 	_spawn_wildlife_for_zone(animal_zone_states[animal_zone_states.size() - 1])
+	_record_boss_lifecycle_event(zone, "active", -1, "dormant")
 	add_objective_feed("Center boss descends: %s - fight mid" % family.capitalize(), "fight", -1, family, String(zone.get("id", "")))
 
 func _center_boss_zone_index() -> int:
@@ -2158,6 +2177,7 @@ func _feed_registered_inputs() -> void:
 	var routed_frames: Dictionary = {}
 	var routed_actors: Dictionary = {}
 	var routed_controller_kinds: Dictionary = {}
+	var routed_slots: Dictionary = {}
 	var duplicate_count := 0
 	var unsupported_count := 0
 	var local_count := 0
@@ -2195,6 +2215,7 @@ func _feed_registered_inputs() -> void:
 		routed_frames[actor_key] = frame
 		routed_actors[actor_key] = actor
 		routed_controller_kinds[actor_key] = controller_kind
+		routed_slots[actor_key] = slot
 	var routing_valid := duplicate_count == 0 and unsupported_count == 0
 	var transition_consumed: Array = []
 	var committed_action_count := 0
@@ -2220,6 +2241,7 @@ func _feed_registered_inputs() -> void:
 					add_kill_feed("Hut defense assignment needs a reserve habitat upgrade")
 					committed_action_count += 1
 			actor.set_input_frame(frame)
+			_record_balance_slot_tick(actor, frame, actor_alive, routed_slots.get(actor_key, {}))
 			if routing_valid and actor_alive and switch_action_neutral_ticks.has(actor.get_instance_id()):
 				transition_consumed.append(actor.get_instance_id())
 	_advance_switch_action_neutral_ticks(transition_consumed)
@@ -2238,6 +2260,180 @@ func _feed_registered_inputs() -> void:
 
 func get_input_routing_state() -> Dictionary:
 	return last_input_routing_state.duplicate(true)
+
+func _record_balance_slot_tick(
+	actor: Node,
+	frame: Resource,
+	actor_alive: bool,
+	known_slot: Dictionary = {}
+) -> void:
+	if actor == null or not is_instance_valid(actor) or frame == null:
+		return
+	var slot: Dictionary = known_slot if not known_slot.is_empty() else slot_registry.get_slot_for_actor(actor)
+	var slot_id := String(slot.get("slot_id", ""))
+	if slot_id.is_empty():
+		return
+	var state := _ensure_balance_slot_telemetry(actor, slot)
+	if int(state.get("last_sample_tick", -1)) == simulation_tick:
+		return
+	var position: Vector2 = actor.global_position
+	if bool(state.get("was_alive", false)) and actor_alive:
+		state["distance_traveled_px"] = float(state.get("distance_traveled_px", 0.0)) \
+			+ position.distance_to(state.get("last_position", position))
+	state["last_position"] = position
+	state["last_sample_tick"] = simulation_tick
+	state["sample_ticks"] = int(state.get("sample_ticks", 0)) + 1
+
+	var buttons := int(frame.get("buttons"))
+	var previous_buttons := int(state.get("previous_buttons", 0))
+	if not actor_alive:
+		state["was_alive"] = false
+		state["previous_buttons"] = 0
+		state["current_idle_ticks"] = 0
+		balance_slot_telemetry[slot_id] = state
+		return
+
+	state["was_alive"] = true
+	state["alive_ticks"] = int(state.get("alive_ticks", 0)) + 1
+	var move_input: Vector2 = frame.get("move")
+	var has_move_input := move_input.length_squared() > 0.0001
+	var has_action_input := buttons != 0
+	if has_move_input:
+		state["move_input_ticks"] = int(state.get("move_input_ticks", 0)) + 1
+	if has_move_input or has_action_input:
+		state["active_ticks"] = int(state.get("active_ticks", 0)) + 1
+		state["current_idle_ticks"] = 0
+	else:
+		state["idle_ticks"] = int(state.get("idle_ticks", 0)) + 1
+		state["current_idle_ticks"] = int(state.get("current_idle_ticks", 0)) + 1
+		state["max_idle_ticks"] = maxi(
+			int(state.get("max_idle_ticks", 0)),
+			int(state.get("current_idle_ticks", 0))
+		)
+
+	var pressed_buttons := buttons & ~previous_buttons
+	if (pressed_buttons & InputFrameScript.BUTTON_PRIMARY) != 0:
+		state["primary_press_count"] = int(state.get("primary_press_count", 0)) + 1
+	var ability_presses := 0
+	if (pressed_buttons & InputFrameScript.BUTTON_ABILITY_Q) != 0:
+		state["ability_q_press_count"] = int(state.get("ability_q_press_count", 0)) + 1
+		ability_presses += 1
+	if (pressed_buttons & InputFrameScript.BUTTON_ABILITY_E) != 0:
+		state["ability_e_press_count"] = int(state.get("ability_e_press_count", 0)) + 1
+		ability_presses += 1
+	state["ability_press_count"] = int(state.get("ability_press_count", 0)) + ability_presses
+	state["previous_buttons"] = buttons
+	balance_slot_telemetry[slot_id] = state
+
+func _ensure_balance_slot_telemetry(actor: Node, known_slot: Dictionary = {}) -> Dictionary:
+	var slot := known_slot
+	if slot.is_empty() and actor != null and is_instance_valid(actor):
+		slot = slot_registry.get_slot_for_actor(actor)
+	var slot_id := String(slot.get("slot_id", ""))
+	if slot_id.is_empty():
+		return {}
+	if balance_slot_telemetry.has(slot_id):
+		return balance_slot_telemetry[slot_id]
+	var position: Vector2 = actor.global_position if actor != null and is_instance_valid(actor) else Vector2.ZERO
+	var state := {
+		"slot_id": slot_id,
+		"slot_index": int(slot.get("slot_index", -1)),
+		"team": int(slot.get("team", -1)),
+		"creature_id": String(slot.get("creature_id", "")),
+		"sample_ticks": 0,
+		"alive_ticks": 0,
+		"active_ticks": 0,
+		"idle_ticks": 0,
+		"current_idle_ticks": 0,
+		"max_idle_ticks": 0,
+		"distance_traveled_px": 0.0,
+		"move_input_ticks": 0,
+		"primary_press_count": 0,
+		"ability_press_count": 0,
+		"ability_q_press_count": 0,
+		"ability_e_press_count": 0,
+		"landed_hit_count": 0,
+		"last_position": position,
+		"last_sample_tick": -1,
+		"previous_buttons": 0,
+		"was_alive": false
+	}
+	balance_slot_telemetry[slot_id] = state
+	return state
+
+func _record_landed_hit_telemetry(event: Dictionary) -> void:
+	if String(event.get("type", "")) != "hit_landed" or float(event.get("amount", 0.0)) <= 0.0:
+		return
+	var source: Node = event.get("source", null)
+	var target: Node = event.get("target", null)
+	if source == null or not is_instance_valid(source) or source == target:
+		return
+	if not source.has_method("is_scored_actor") or not source.is_scored_actor():
+		return
+	var slot: Dictionary = slot_registry.get_slot_for_actor(source)
+	var slot_id := String(slot.get("slot_id", ""))
+	if slot_id.is_empty():
+		return
+	var state := _ensure_balance_slot_telemetry(source, slot)
+	state["landed_hit_count"] = int(state.get("landed_hit_count", 0)) + 1
+	balance_slot_telemetry[slot_id] = state
+
+func _record_boss_lifecycle_event(
+	zone: Dictionary,
+	event_name: String,
+	acting_team := -1,
+	from_state := ""
+) -> void:
+	if not bool(zone.get("boss", false)):
+		return
+	boss_lifecycle_event_sequence += 1
+	var center := bool(zone.get("center_boss", false))
+	boss_lifecycle_events.append({
+		"sequence": boss_lifecycle_event_sequence,
+		"event": event_name,
+		"elapsed_sec": elapsed,
+		"simulation_tick": simulation_tick,
+		"zone_id": String(zone.get("id", "")),
+		"family": String(zone.get("boss_family", "")),
+		"center": center,
+		"side": String(zone.get("side", "center" if center else "")),
+		"owner_team": _zone_owner_team(zone),
+		"acting_team": int(acting_team),
+		"from_state": from_state,
+		"objective_state": String(zone.get("objective_state", event_name)),
+		"trigger": "center_spawn" if center and event_name == "active" else "side_wake" if event_name == "active" else ""
+	})
+	while boss_lifecycle_events.size() > BOSS_LIFECYCLE_EVENT_LIMIT:
+		boss_lifecycle_events.pop_front()
+
+func get_balance_telemetry_state() -> Dictionary:
+	return {
+		"slot_activity": _balance_slot_telemetry_rows(),
+		"boss_lifecycle_events": boss_lifecycle_events.duplicate(true),
+		"boss_lifecycle_total_events": boss_lifecycle_event_sequence,
+		"boss_lifecycle_retained_events": boss_lifecycle_events.size(),
+		"boss_lifecycle_truncated_events": maxi(
+			boss_lifecycle_event_sequence - boss_lifecycle_events.size(),
+			0
+		)
+	}
+
+func _balance_slot_telemetry_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary] = []
+	if not slot_registry.is_sealed():
+		return rows
+	for team_value in [BLUE, RED]:
+		for slot: Dictionary in slot_registry.get_team_slots(int(team_value)):
+			var actor: Node = slot.get("actor", null)
+			var state := _ensure_balance_slot_telemetry(actor, slot)
+			var row := state.duplicate(true)
+			row.erase("last_position")
+			row.erase("last_sample_tick")
+			row.erase("previous_buttons")
+			row.erase("was_alive")
+			row["distance_traveled_px"] = snappedf(float(row.get("distance_traveled_px", 0.0)), 0.001)
+			rows.append(row)
+	return rows
 
 func _apply_switch_release_gate(frame: Resource) -> void:
 	if frame == null or switch_release_mask == 0:
@@ -3265,6 +3461,7 @@ func record_vfx_event(event: Dictionary) -> void:
 	vfx_events.append(event.duplicate())
 	if vfx_events.size() > 240:
 		vfx_events.pop_front()
+	_record_landed_hit_telemetry(event)
 	_maybe_trigger_squad_aggro(event)
 	_spawn_vfx_for_event(event)
 	queue_redraw()
@@ -4538,6 +4735,9 @@ func _reset_match_telemetry() -> void:
 	economy_first_event_sec.clear()
 	economy_team_event_counts = {"blue": {}, "red": {}}
 	economy_team_first_event_sec = {"blue": {}, "red": {}}
+	balance_slot_telemetry.clear()
+	boss_lifecycle_events.clear()
+	boss_lifecycle_event_sequence = 0
 	_reset_team_vision()
 	team_stats = {
 		BLUE: _new_team_stats(),
@@ -4676,7 +4876,8 @@ func get_match_summary_data(winner := "", reason := "") -> Dictionary:
 		"top_players": _top_match_summary_rows(),
 		"players": _player_match_summary_rows(),
 		"economy_events": get_economy_event_state(),
-		"economy_summary": get_economy_summary_state()
+		"economy_summary": get_economy_summary_state(),
+		"balance_telemetry": get_balance_telemetry_state()
 	}
 
 func get_last_match_summary_log_path() -> String:

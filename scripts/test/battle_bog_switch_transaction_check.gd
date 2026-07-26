@@ -103,6 +103,10 @@ func _run() -> void:
 		"backward",
 		failures
 	)
+	var unregistered_reset_ok := _check_unregistered_actor_reset(
+		original_bot_brain,
+		failures
+	)
 	var rejected_registry_ok := _check_rejected_registry_transfers(arena, failures)
 	var lifecycle_rejection_ok := _check_lifecycle_rejections(arena, failures)
 
@@ -115,6 +119,7 @@ func _run() -> void:
 		initial_ok
 		and forward_ok
 		and backward_ok
+		and unregistered_reset_ok
 		and rejected_registry_ok
 		and lifecycle_rejection_ok
 	)
@@ -331,6 +336,7 @@ func _seed_brain_caches(brain: RefCounted, first: Node, second: Node) -> void:
 		brain.retreating_actors[key] = true
 		brain.intent_cache[key] = {"mode": "fight", "target": second if actor == first else first}
 		brain.intent_cache_frames[key] = Engine.get_physics_frames()
+		brain.actor_slot_ids[key] = "seeded:%d" % key
 
 
 func _brain_caches_clear(brain: RefCounted, actor: Node) -> bool:
@@ -340,7 +346,26 @@ func _brain_caches_clear(brain: RefCounted, actor: Node) -> bool:
 		and not brain.retreating_actors.has(key)
 		and not brain.intent_cache.has(key)
 		and not brain.intent_cache_frames.has(key)
+		and not brain.actor_slot_ids.has(key)
 	)
+
+
+func _check_unregistered_actor_reset(
+	brain: RefCounted,
+	failures: Array[String]
+) -> bool:
+	var actor := Node2D.new()
+	get_root().add_child(actor)
+	_seed_brain_caches(brain, actor, actor)
+	brain.reset_actor(actor)
+	var ok := _brain_caches_clear(brain, actor)
+	if not ok:
+		failures.append(
+			"reset_actor must clear every cache, including actor_slot_ids, for a valid actor "
+			+ "that was never registered to a match slot"
+		)
+	actor.free()
+	return ok
 
 
 func _routing_is_valid_and_side_effect_free(

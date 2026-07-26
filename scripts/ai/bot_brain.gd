@@ -35,12 +35,25 @@ const DEFEND_HUT_RADIUS := 430.0
 const DEFEND_ACTOR_RANGE := 980.0
 const TARGET_STICKINESS_BONUS := 60.0
 const TARGET_QUERY_REFRESH_FRAMES := 8
+const FIGHT_SCAN_RANGE_SQUARED := FIGHT_SCAN_RANGE * FIGHT_SCAN_RANGE
+const LIVE_DAMAGE_QUERY := {"require_damage_api": false}
+const ORDER_DAMAGE_QUERY := {
+	"require_damage_api": false,
+	"allow_wildlife": true
+}
+const VALID_TARGET_QUERY := {
+	"ignore_team": true,
+	"require_damage_api": false,
+	"allow_self": true,
+	"allow_stealthed": true
+}
 
 var hooks := {}
 var sticky_targets := {}
 var retreating_actors := {}
 var intent_cache := {}
 var intent_cache_frames := {}
+var actor_slot_ids := {}
 var goal_selector: RefCounted = ActorGoalSelectorScript.new()
 
 func build_frame(actor: Node, allow_autonomous_deposit := true, order: Dictionary = {}) -> Resource:
@@ -118,6 +131,7 @@ func reset_actor(actor: Node) -> void:
 	retreating_actors.erase(key)
 	intent_cache.erase(key)
 	intent_cache_frames.erase(key)
+	actor_slot_ids.erase(key)
 	if goal_selector.has_method("reset_actor"):
 		goal_selector.reset_actor(actor)
 
@@ -154,7 +168,7 @@ func _cached_intent_valid(actor: Node, intent: Dictionary, age_frames: int, allo
 	]:
 		return goal_selector.goal_is_valid(actor, intent)
 	var target: Node = intent.get("target", null)
-	if target != null and not TargetFilter.is_live_damage_target(actor, target, {"require_damage_api": false}):
+	if target != null and not TargetFilter.is_live_damage_target(actor, target, LIVE_DAMAGE_QUERY):
 		return false
 	if target != null and not _can_perceive(actor, target):
 		return false  # target slipped into fog -> re-choose (may become an investigate)
@@ -163,7 +177,10 @@ func _cached_intent_valid(actor: Node, intent: Dictionary, age_frames: int, allo
 	return true
 
 func _choose_intent(actor: Node, allow_autonomous_deposit := true) -> Dictionary:
+	var perf_candidates_start := Time.get_ticks_usec() if PerfStats.enabled else 0
 	var candidates := _target_candidates(actor)
+	if PerfStats.enabled:
+		PerfStats.add("bot_target_candidates", int(Time.get_ticks_usec() - perf_candidates_start))
 	var retreat_intent := _retreat_intent(actor, candidates)
 	if not retreat_intent.is_empty():
 		return retreat_intent
@@ -284,7 +301,7 @@ func _travel_frame(actor: Node, destination: Vector2, hold_radius: float, aim: V
 	var frame := InputFrameScript.new()
 	frame.aim = aim
 	var offset: Vector2 = destination - actor.global_position
-	if offset.length() > hold_radius:
+	if offset.length_squared() > hold_radius * hold_radius:
 		frame.move = _steered_move(actor, destination, offset.normalized())
 	return frame
 
@@ -302,8 +319,7 @@ func _order_is_valid(actor: Node, order: Dictionary) -> bool:
 		return false
 	if actor.arena == null or actor.arena.get("slot_registry") == null:
 		return false
-	var slot: Dictionary = actor.arena.slot_registry.get_slot_for_actor(actor)
-	if String(slot.get("slot_id", "")) != String(order.get("slot_id", "")):
+	if _slot_id_for_actor(actor) != String(order.get("slot_id", "")):
 		return false
 	var current_epoch := int(actor.arena.get("team_director_epoch"))
 	return int(order.get("epoch", -1)) == current_epoch \
@@ -320,10 +336,17 @@ func _valid_follow_target(actor: Node, target: Node) -> bool:
 
 
 func _valid_order_target(actor: Node, target: Node) -> bool:
-	return TargetFilter.is_live_damage_target(actor, target, {
-		"require_damage_api": false,
-		"allow_wildlife": true
-	})
+	return TargetFilter.is_live_damage_target(actor, target, ORDER_DAMAGE_QUERY)
+
+
+func _slot_id_for_actor(actor: Node) -> String:
+	var key := int(actor.get_instance_id())
+	if actor_slot_ids.has(key):
+		return String(actor_slot_ids[key])
+	var slot: Dictionary = actor.arena.slot_registry.get_slot_for_actor(actor)
+	var slot_id := String(slot.get("slot_id", ""))
+	actor_slot_ids[key] = slot_id
+	return slot_id
 
 
 func _deposit_frame(actor: Node, intent: Dictionary) -> Resource:
@@ -338,7 +361,7 @@ func _deposit_frame(actor: Node, intent: Dictionary) -> Resource:
 		frame.set_button(InputFrameScript.BUTTON_HABITAT_DEPOSIT, true)
 		return frame
 	var offset: Vector2 = point - actor.global_position
-	if offset.length() > 4.0:
+	if offset.length_squared() > 16.0:
 		frame.move = _steered_move(actor, point, offset.normalized())
 	return frame
 
@@ -356,10 +379,10 @@ func _forage_frame(actor: Node, intent: Dictionary) -> Resource:
 	var hold_radius := float(actor.body_radius) + resource_radius + 4.0
 	if requires_attack:
 		hold_radius = _preferred_range(actor) + float(actor.body_radius) * 1.5 + resource_radius
-	var distance: float = actor.global_position.distance_to(point)
-	if distance > hold_radius:
-		var offset: Vector2 = point - actor.global_position
-		frame.move = _steered_move(actor, point, offset.normalized() if offset.length() > 0.001 else Vector2.RIGHT)
+	var offset: Vector2 = point - actor.global_position
+	var offset_length_squared := offset.length_squared()
+	if offset_length_squared > hold_radius * hold_radius:
+		frame.move = _steered_move(actor, point, offset.normalized() if offset_length_squared > 0.000001 else Vector2.RIGHT)
 	elif requires_attack and String(observation.get("state", "")) == "visible":
 		frame.set_button(InputFrameScript.BUTTON_PRIMARY, true)
 	return frame
@@ -444,14 +467,21 @@ func _target_candidates(actor: Node) -> Array[Node]:
 	var candidates: Array[Node] = []
 	if actor.arena == null:
 		return candidates
+	var actor_position: Vector2 = actor.global_position
+	var actor_team := int(actor.team)
 	if actor.arena.get("entities") != null:
 		for entity in actor.arena.entities:
-			if not TargetFilter.is_live_damage_target(actor, entity, {"require_damage_api": false}):
+			if entity == null or not is_instance_valid(entity) or entity == actor:
+				continue
+			if not _has_property(entity, "team") or int(entity.get("team")) == actor_team:
+				continue
+			var is_hut_candidate := _is_hut(actor, entity)
+			if not is_hut_candidate \
+				and actor_position.distance_squared_to(entity.global_position) > FIGHT_SCAN_RANGE_SQUARED:
+				continue
+			if not TargetFilter.is_live_damage_target(actor, entity, LIVE_DAMAGE_QUERY):
 				continue
 			if not _can_perceive(actor, entity):
-				continue
-			var distance: float = actor.global_position.distance_to(entity.global_position)
-			if not _is_hut(actor, entity) and distance > FIGHT_SCAN_RANGE:
 				continue
 			candidates.append(entity)
 	var core := _open_enemy_core(actor)
@@ -535,11 +565,11 @@ func _is_fog_gated_unit(actor: Node, target: Node) -> bool:
 	var t := int(target.get("team"))
 	if t < 0 or t == int(actor.team):
 		return false
-	if _is_hut(actor, target) or _is_core(actor, target):
-		return false
 	if target.has_method("is_scored_actor") and target.is_scored_actor():
 		return true
-	return _has_property(target, "kind")  # enemy minions
+	# Enemy mobile minions carry `kind`; huts and cores do not. Bosses and
+	# wildlife are neutral and returned above, so structures remain public.
+	return _has_property(target, "kind")
 
 func _is_combatant_target(target: Node) -> bool:
 	if target.has_method("is_scored_actor") and target.is_scored_actor():
@@ -553,31 +583,31 @@ func _closest_enemy_near_point(actor: Node, point: Vector2, radius: float) -> No
 
 func _closest_candidate_to_point(candidates: Array[Node], point: Vector2, radius: float) -> Node:
 	var closest: Node = null
-	var closest_distance: float = radius
+	var closest_distance_squared := radius * radius
 	for candidate: Node in candidates:
 		if candidate == null or not is_instance_valid(candidate):
 			continue
-		var distance: float = candidate.global_position.distance_to(point)
-		if distance < closest_distance:
+		var distance_squared: float = candidate.global_position.distance_squared_to(point)
+		if distance_squared < closest_distance_squared:
 			closest = candidate
-			closest_distance = distance
+			closest_distance_squared = distance_squared
 	return closest
 
 func _closest_live_enemy(actor: Node, max_distance: float) -> Node:
 	var closest: Node = null
-	var closest_distance: float = max_distance
+	var closest_distance_squared := max_distance * max_distance
 	if actor.arena == null:
 		return null
 	if _has_property(actor.arena, "entities"):
 		for entity in actor.arena.entities:
-			if not TargetFilter.is_live_damage_target(actor, entity, {"require_damage_api": false}):
+			if not TargetFilter.is_live_damage_target(actor, entity, LIVE_DAMAGE_QUERY):
 				continue
 			if not _can_perceive(actor, entity):
 				continue
-			var distance: float = actor.global_position.distance_to(entity.global_position)
-			if distance < closest_distance:
+			var distance_squared: float = actor.global_position.distance_squared_to(entity.global_position)
+			if distance_squared < closest_distance_squared:
 				closest = entity
-				closest_distance = distance
+				closest_distance_squared = distance_squared
 		return closest
 	if actor.arena.has_method("get_closest_enemy"):
 		var candidate: Node = actor.arena.get_closest_enemy(actor, max_distance)
@@ -587,15 +617,15 @@ func _closest_live_enemy(actor: Node, max_distance: float) -> Node:
 
 func _retreat_point(actor: Node) -> Vector2:
 	var best_point: Vector2 = actor.global_position
-	var best_distance: float = INF
+	var best_distance_squared: float = INF
 	if actor.arena.has_method("get_team_spawn"):
 		best_point = actor.arena.get_team_spawn(actor.team)
 	for hut in actor.arena.huts if actor.arena.get("huts") != null else []:
 		if not _valid_target(hut) or hut.team != actor.team:
 			continue
-		var distance: float = actor.global_position.distance_to(hut.global_position)
-		if distance < best_distance:
-			best_distance = distance
+		var distance_squared: float = actor.global_position.distance_squared_to(hut.global_position)
+		if distance_squared < best_distance_squared:
+			best_distance_squared = distance_squared
 			best_point = hut.global_position
 	return best_point
 
@@ -605,12 +635,7 @@ func _aim_point(actor: Node, target: Node, fallback: Vector2, mode: String) -> V
 	return fallback
 
 func _valid_target(target: Node) -> bool:
-	return TargetFilter.is_live_damage_target(null, target, {
-		"ignore_team": true,
-		"require_damage_api": false,
-		"allow_self": true,
-		"allow_stealthed": true
-	})
+	return TargetFilter.is_live_damage_target(null, target, VALID_TARGET_QUERY)
 
 func _health_ratio(target: Node) -> float:
 	var max_health := float(target.max_health)
@@ -641,7 +666,7 @@ func _has_property(target: Object, property_name: String) -> bool:
 func _sticky_target(actor: Node) -> Node:
 	var key := int(actor.get_instance_id())
 	var target: Node = sticky_targets.get(key, null)
-	if TargetFilter.is_live_damage_target(actor, target, {"require_damage_api": false}):
+	if TargetFilter.is_live_damage_target(actor, target, LIVE_DAMAGE_QUERY):
 		return target
 	sticky_targets.erase(key)
 	return null
