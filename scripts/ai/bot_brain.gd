@@ -161,13 +161,21 @@ func _cached_intent_valid(actor: Node, intent: Dictionary, age_frames: int, allo
 	if bool(intent.get("_allow_autonomous_deposit", true)) != allow_autonomous_deposit:
 		return false
 	var mode := String(intent.get("mode", ""))
+	var target_value: Variant = intent.get("target", null)
+	if typeof(target_value) != TYPE_NIL and not _is_valid_node_reference(target_value):
+		return false
 	if mode in [
 		ActorGoalSelectorScript.GOAL_DEPOSIT,
 		ActorGoalSelectorScript.GOAL_RETURN_READY,
 		ActorGoalSelectorScript.GOAL_FORAGE
 	]:
+		var observation_value: Variant = intent.get("food", {})
+		if observation_value is Dictionary:
+			var resource_value: Variant = observation_value.get("resource", null)
+			if typeof(resource_value) != TYPE_NIL and not _is_valid_node_reference(resource_value):
+				return false
 		return goal_selector.goal_is_valid(actor, intent)
-	var target: Node = intent.get("target", null)
+	var target: Node = target_value
 	if target != null and not TargetFilter.is_live_damage_target(actor, target, LIVE_DAMAGE_QUERY):
 		return false
 	if target != null and not _can_perceive(actor, target):
@@ -665,11 +673,25 @@ func _has_property(target: Object, property_name: String) -> bool:
 
 func _sticky_target(actor: Node) -> Node:
 	var key := int(actor.get_instance_id())
-	var target: Node = sticky_targets.get(key, null)
+	var target_value: Variant = sticky_targets.get(key, null)
+	if typeof(target_value) != TYPE_NIL and not _is_valid_node_reference(target_value):
+		sticky_targets.erase(key)
+		return null
+	if typeof(target_value) == TYPE_NIL:
+		return null
+	var target: Node = target_value
 	if TargetFilter.is_live_damage_target(actor, target, LIVE_DAMAGE_QUERY):
 		return target
 	sticky_targets.erase(key)
 	return null
+
+
+func _is_valid_node_reference(value: Variant) -> bool:
+	return typeof(value) == TYPE_OBJECT \
+		and is_instance_valid(value) \
+		and value is Node \
+		and not (value as Node).is_queued_for_deletion()
+
 
 func _set_sticky_target(actor: Node, target: Node) -> void:
 	var key := int(actor.get_instance_id())

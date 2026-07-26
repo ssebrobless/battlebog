@@ -21,9 +21,10 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$MatrixSchema = "battle_bog.balance_matrix.v3"
+$MatrixSchema = "battle_bog.balance_matrix.v4"
 $ResultSchema = "battle_bog.balance_sim.v1"
-$ResultMetadataSchema = "battle_bog.balance_matrix_result.v1"
+$ResultMetadataSchema = "battle_bog.balance_matrix_result.v2"
+$BuildIdentitySchema = "battle_bog.build_identity.v2"
 $ExpectedRulesetId = "competitive_3v3"
 $ExpectedRulesSchemaVersion = 1
 $StandardSeeds = @(7L, 19L, 43L, 71L, 101L, 149L, 211L, 307L)
@@ -115,10 +116,87 @@ function Get-PathFingerprint {
 	}
 }
 
+function Resolve-Executable {
+	param([string]$Candidate)
+	if ([string]::IsNullOrWhiteSpace($Candidate)) {
+		return $null
+	}
+	if (Test-Path -LiteralPath $Candidate -PathType Leaf) {
+		return (Resolve-Path -LiteralPath $Candidate).Path
+	}
+	$command = Get-Command $Candidate -ErrorAction SilentlyContinue
+	if ($null -ne $command -and -not [string]::IsNullOrWhiteSpace($command.Source)) {
+		return (Resolve-Path -LiteralPath $command.Source).Path
+	}
+	return $null
+}
+
+function Resolve-Godot {
+	param([string]$Requested)
+	foreach ($candidate in @($Requested, $env:GODOT4, "godot")) {
+		$resolved = Resolve-Executable $candidate
+		if ($null -ne $resolved) {
+			return $resolved
+		}
+	}
+
+	$wingetRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+	if (Test-Path -LiteralPath $wingetRoot) {
+		$matches = Get-ChildItem -LiteralPath $wingetRoot -Directory `
+			-ErrorAction SilentlyContinue |
+			Where-Object { $_.Name -match "Godot" } |
+			ForEach-Object {
+				Get-ChildItem -LiteralPath $_.FullName -Filter "*.exe" -Recurse `
+					-ErrorAction SilentlyContinue
+			} |
+			Where-Object {
+				$_.Name -match "godot" -and $_.Name -notmatch "headless|server"
+			} |
+			Sort-Object @{ Expression = { $_.Name -notmatch "console" } },
+				LastWriteTime -Descending
+		$match = $matches | Select-Object -First 1
+		if ($null -ne $match) {
+			return $match.FullName
+		}
+	}
+	throw "Could not locate Godot. Pass -Godot or set `$env:GODOT4."
+}
+
+function Get-GodotExecutableProvenance {
+	param([string]$GodotPath)
+	$resolvedPath = Resolve-Executable $GodotPath
+	if ($null -eq $resolvedPath) {
+		throw "Could not resolve Godot executable '$GodotPath'."
+	}
+	$hashBefore = (Get-FileHash -Algorithm SHA256 `
+		-LiteralPath $resolvedPath).Hash.ToLowerInvariant()
+	$versionLines = @(& $resolvedPath --version 2>&1 |
+		ForEach-Object { $_.ToString().TrimEnd() })
+	$versionExitCode = $LASTEXITCODE
+	if ($versionExitCode -ne 0) {
+		throw "Godot executable '$resolvedPath' failed --version with exit code $versionExitCode."
+	}
+	$versionOutput = ($versionLines -join "`n").Trim()
+	if ([string]::IsNullOrWhiteSpace($versionOutput)) {
+		throw "Godot executable '$resolvedPath' returned no --version output."
+	}
+	$hashAfter = (Get-FileHash -Algorithm SHA256 `
+		-LiteralPath $resolvedPath).Hash.ToLowerInvariant()
+	if ($hashAfter -ne $hashBefore) {
+		throw "Godot executable '$resolvedPath' changed while provenance was captured."
+	}
+	return [ordered]@{
+		resolved_path = $resolvedPath
+		version_output = $versionOutput
+		sha256 = $hashBefore
+	}
+}
+
 function Get-BuildIdentity {
 	param(
 		[string]$RepoRoot,
-		[string]$RunnerPath
+		[string]$RunnerPath,
+		[object]$GodotProvenance
 	)
 	$pathspecs = @(
 		"project.godot",
@@ -170,10 +248,11 @@ function Get-BuildIdentity {
 		runner_gd_sha256 = (
 			Get-FileHash -Algorithm SHA256 -LiteralPath $runnerGdPath
 		).Hash.ToLowerInvariant()
+		godot_executable = $GodotProvenance
 	}
-	$identityJson = $identityContract | ConvertTo-Json -Depth 5 -Compress
+	$identityJson = $identityContract | ConvertTo-Json -Depth 10 -Compress
 	return [ordered]@{
-		schema = "battle_bog.build_identity.v1"
+		schema = $BuildIdentitySchema
 		identity_sha256 = Get-Sha256 -Text $identityJson
 		contract = $identityContract
 	}
@@ -182,18 +261,46 @@ function Get-BuildIdentity {
 function Resolve-BuildIdentity {
 	param(
 		[string]$RepoRoot,
-		[string]$RunnerPath
+		[string]$RunnerPath,
+		[string]$GodotPath
 	)
+	$godotProvenance = Get-GodotExecutableProvenance -GodotPath $GodotPath
 	$identity = if ($null -ne $BuildIdentityProvider) {
-		& $BuildIdentityProvider $RepoRoot $RunnerPath
+		& $BuildIdentityProvider $RepoRoot $RunnerPath $godotProvenance
 	} else {
-		Get-BuildIdentity -RepoRoot $RepoRoot -RunnerPath $RunnerPath
+		Get-BuildIdentity -RepoRoot $RepoRoot -RunnerPath $RunnerPath `
+			-GodotProvenance $godotProvenance
 	}
 	if (
 		$null -eq $identity -or
 		[string]::IsNullOrWhiteSpace([string]$identity.identity_sha256)
 	) {
 		throw "Build identity provider returned no deterministic identity."
+	}
+	if ([string]$identity.schema -ne $BuildIdentitySchema) {
+		throw "Build identity provider returned unsupported schema '$($identity.schema)'."
+	}
+	if ($null -eq $identity.contract) {
+		throw "Build identity provider returned no identity contract."
+	}
+	$contractJson = $identity.contract | ConvertTo-Json -Depth 10 -Compress
+	$contractSha256 = Get-Sha256 -Text $contractJson
+	if ([string]$identity.identity_sha256 -ne $contractSha256) {
+		throw "Build identity provider returned an identity hash that does not match its contract."
+	}
+	$providedGodotProvenance = try {
+		$identity.contract.godot_executable
+	} catch {
+		$null
+	}
+	if ($null -eq $providedGodotProvenance) {
+		throw "Build identity provider omitted Godot executable provenance."
+	}
+	$providedGodotJson = $providedGodotProvenance |
+		ConvertTo-Json -Depth 4 -Compress
+	$currentGodotJson = $godotProvenance | ConvertTo-Json -Depth 4 -Compress
+	if ($providedGodotJson -ne $currentGodotJson) {
+		throw "Build identity provider returned different Godot executable provenance."
 	}
 	return $identity
 }
@@ -203,10 +310,11 @@ function Assert-BuildIdentityUnchanged {
 		[string]$ExpectedSha256,
 		[string]$Phase,
 		[string]$RepoRoot,
-		[string]$RunnerPath
+		[string]$RunnerPath,
+		[string]$GodotPath
 	)
 	$currentIdentity = Resolve-BuildIdentity -RepoRoot $RepoRoot `
-		-RunnerPath $RunnerPath
+		-RunnerPath $RunnerPath -GodotPath $GodotPath
 	$currentSha256 = [string]$currentIdentity.identity_sha256
 	if ($currentSha256 -ne $ExpectedSha256) {
 		throw "Build identity changed $Phase. Matrix aborted before accepting or merging cross-build results."
@@ -438,6 +546,8 @@ function Read-ValidatedResult {
 		[string]$ResultPath,
 		[string]$RunId,
 		[string]$BuildIdentitySha256,
+		[string]$ArtifactNamespace,
+		[string]$GodotExecutableSha256,
 		[string]$ExpectedRulesFingerprint,
 		[switch]$RequireMetadata
 	)
@@ -524,6 +634,12 @@ function Read-ValidatedResult {
 		if ([string]$metadata.build_identity_sha256 -ne $BuildIdentitySha256) {
 			throw "Existing job '$RunId' was produced by a different build identity."
 		}
+		if ([string]$metadata.artifact_namespace -ne $ArtifactNamespace) {
+			throw "Existing job '$RunId' was produced in a different artifact namespace."
+		}
+		if ([string]$metadata.godot_executable_sha256 -ne $GodotExecutableSha256) {
+			throw "Existing job '$RunId' was produced by a different Godot executable."
+		}
 		if ([string]$metadata.result_sha256 -ne $resultHash) {
 			throw "Existing job '$RunId' changed after its matrix metadata was written."
 		}
@@ -543,12 +659,16 @@ function Write-ResultMetadata {
 	param(
 		[string]$RunId,
 		[string]$BuildIdentitySha256,
+		[string]$ArtifactNamespace,
+		[string]$GodotExecutableSha256,
 		[object]$ValidatedResult
 	)
 	$metadata = [ordered]@{
 		schema = $ResultMetadataSchema
 		run_id = $RunId
 		build_identity_sha256 = $BuildIdentitySha256
+		artifact_namespace = $ArtifactNamespace
+		godot_executable_sha256 = $GodotExecutableSha256
 		result_sha256 = [string]$ValidatedResult.ResultSha256
 		rules_fingerprint = [string]$ValidatedResult.RulesFingerprint
 	}
@@ -560,7 +680,8 @@ function Start-MatrixJob {
 		[object]$Spec,
 		[string]$RunId,
 		[string]$JobDirectory,
-		[string]$RunnerPath
+		[string]$RunnerPath,
+		[string]$GodotPath
 	)
 	New-Item -ItemType Directory -Force -Path $JobDirectory | Out-Null
 	$resultPath = Join-Path $JobDirectory "result.jsonl"
@@ -573,9 +694,7 @@ function Start-MatrixJob {
 		OutputPath = $resultPath
 		RunId = $RunId
 		TimeoutSec = $TimeoutSec
-	}
-	if (-not [string]::IsNullOrWhiteSpace($Godot)) {
-		$parameters.Godot = $Godot
+		Godot = $GodotPath
 	}
 	if ($ValidateOnly) {
 		$parameters.ValidateOnly = $true
@@ -686,8 +805,11 @@ $runnerPath = Join-Path $scriptRoot "run_balance_sim.ps1"
 if (-not (Test-Path -LiteralPath $runnerPath -PathType Leaf)) {
 	throw "Missing single-match runner '$runnerPath'."
 }
-$buildIdentity = Resolve-BuildIdentity -RepoRoot $repoRoot -RunnerPath $runnerPath
+$godotPath = Resolve-Godot -Requested $Godot
+$buildIdentity = Resolve-BuildIdentity -RepoRoot $repoRoot `
+	-RunnerPath $runnerPath -GodotPath $godotPath
 $buildIdentitySha256 = [string]$buildIdentity.identity_sha256
+$godotExecutableSha256 = [string]$buildIdentity.contract.godot_executable.sha256
 $jobSpecs = @(if ($namedStage) {
 	Get-NamedStageJobSpecs -SelectedStage $Stage
 } else {
@@ -777,6 +899,14 @@ if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
 }
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 $OutputRoot = (Resolve-Path -LiteralPath $OutputRoot).Path
+$outputRootIdentity = [System.IO.Path]::GetFullPath($OutputRoot).
+	TrimEnd(
+		[System.IO.Path]::DirectorySeparatorChar,
+		[System.IO.Path]::AltDirectorySeparatorChar
+	).ToUpperInvariant()
+$artifactNamespace = "root-{0}" -f (
+	Get-Sha256 -Text $outputRootIdentity
+).Substring(0, 16)
 $outputRootLock = Enter-OutputRootLock -ResolvedOutputRoot $OutputRoot
 try {
 $jobsRoot = Join-Path $OutputRoot "jobs"
@@ -804,6 +934,9 @@ if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
 	if ([string]$existingManifest.plan_sha256 -ne $planHash) {
 		throw "OutputRoot belongs to a different matrix plan. Choose another OutputRoot."
 	}
+	if ([string]$existingManifest.artifact_namespace -ne $artifactNamespace) {
+		throw "OutputRoot belongs to a different matrix artifact namespace."
+	}
 	if (-not ($existingManifest.PSObject.Properties.Name -contains "expected_rules")) {
 		throw "Existing manifest does not declare its expected runtime rules."
 	}
@@ -820,6 +953,7 @@ if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
 		schema = $MatrixSchema
 		plan_id = $planId
 		plan_sha256 = $planHash
+		artifact_namespace = $artifactNamespace
 		build_identity = $buildIdentity
 		expected_rules = [ordered]@{
 			ruleset_id = $ExpectedRulesetId
@@ -838,14 +972,16 @@ $skippedCount = 0
 foreach ($spec in $jobSpecs) {
 	$stageToken = $spec.Stage.ToLowerInvariant()
 	$durationToken = Get-DurationToken -DurationSeconds $spec.MaxSimSeconds
-	$runId = "bbm-{0}-{1:D3}-{2}-{3}-vs-{4}-seed-{5}-sec-{6}" -f `
-		$planHash.Substring(0, 8), $spec.Ordinal, $stageToken, `
+	$runId = "bbm-{0}-{1}-{2:D3}-{3}-{4}-vs-{5}-seed-{6}-sec-{7}" -f `
+		$planHash.Substring(0, 8), $artifactNamespace, $spec.Ordinal, $stageToken, `
 		$spec.BlueSquad.ToLowerInvariant(), $spec.RedSquad.ToLowerInvariant(), `
 		$spec.Seed, $durationToken
 	$jobDirectory = Join-Path $jobsRoot $runId
 	$resultPath = Join-Path $jobDirectory "result.jsonl"
 	$validatedResult = Read-ValidatedResult -Spec $spec -ResultPath $resultPath `
 		-RunId $runId -BuildIdentitySha256 $buildIdentitySha256 `
+		-ArtifactNamespace $artifactNamespace `
+		-GodotExecutableSha256 $godotExecutableSha256 `
 		-ExpectedRulesFingerprint $expectedRulesFingerprint -RequireMetadata
 	if ($null -ne $validatedResult) {
 		$skippedCount++
@@ -868,6 +1004,8 @@ Write-Host "Battle Bog balance matrix '$planId'"
 Write-Host "Jobs: $($jobSpecs.Count) total, $skippedCount resumed, $($pending.Count) pending"
 Write-Host "Stages: $stageSummaryText"
 Write-Host "Workers: $WorkerCount (bounded), MaxJobs: $MaxJobs"
+Write-Host "Godot: $godotPath"
+Write-Host "Artifact namespace: $artifactNamespace"
 Write-Host "Artifacts: $OutputRoot"
 
 $failures = New-Object System.Collections.Generic.List[string]
@@ -875,14 +1013,15 @@ for ($offset = 0; $offset -lt $pending.Count; $offset += $WorkerCount) {
 	$batchNumber = [int]($offset / $WorkerCount) + 1
 	Assert-BuildIdentityUnchanged -ExpectedSha256 $buildIdentitySha256 `
 		-Phase "before worker batch $batchNumber" -RepoRoot $repoRoot `
-		-RunnerPath $runnerPath
+		-RunnerPath $runnerPath -GodotPath $godotPath
 	$batchEnd = [Math]::Min($pending.Count - 1, $offset + $WorkerCount - 1)
 	$batch = @($pending[$offset..$batchEnd])
 	$active = New-Object System.Collections.Generic.List[object]
 	foreach ($item in $batch) {
 		Write-Host "START $($item.RunId)"
 		$backgroundJob = Start-MatrixJob -Spec $item.Spec -RunId $item.RunId `
-			-JobDirectory $item.JobDirectory -RunnerPath $runnerPath
+			-JobDirectory $item.JobDirectory -RunnerPath $runnerPath `
+			-GodotPath $godotPath
 		$active.Add([pscustomobject]@{
 			Item = $item
 			BackgroundJob = $backgroundJob
@@ -900,7 +1039,7 @@ for ($offset = 0; $offset -lt $pending.Count; $offset += $WorkerCount) {
 	}
 	Assert-BuildIdentityUnchanged -ExpectedSha256 $buildIdentitySha256 `
 		-Phase "while worker batch $batchNumber was running" -RepoRoot $repoRoot `
-		-RunnerPath $runnerPath
+		-RunnerPath $runnerPath -GodotPath $godotPath
 	foreach ($entry in $active) {
 		$payload = $entry.Payload
 		$launcherLog = Join-Path $entry.Item.JobDirectory "launcher.log"
@@ -915,6 +1054,8 @@ for ($offset = 0; $offset -lt $pending.Count; $offset += $WorkerCount) {
 			$validatedResult = Read-ValidatedResult -Spec $entry.Item.Spec `
 				-ResultPath $entry.Item.ResultPath -RunId $entry.Item.RunId `
 				-BuildIdentitySha256 $buildIdentitySha256 `
+				-ArtifactNamespace $artifactNamespace `
+				-GodotExecutableSha256 $godotExecutableSha256 `
 				-ExpectedRulesFingerprint $expectedRulesFingerprint
 			if ($null -eq $validatedResult) {
 				throw "runner exited successfully without a completed result"
@@ -935,6 +1076,8 @@ for ($offset = 0; $offset -lt $pending.Count; $offset += $WorkerCount) {
 			}
 			Write-ResultMetadata -RunId $entry.Item.RunId `
 				-BuildIdentitySha256 $buildIdentitySha256 `
+				-ArtifactNamespace $artifactNamespace `
+				-GodotExecutableSha256 $godotExecutableSha256 `
 				-ValidatedResult $validatedResult
 			$completedRecords.Add([pscustomobject]@{
 				RunId = $entry.Item.RunId
@@ -960,7 +1103,7 @@ if ($completedRecords.Count -ne $jobSpecs.Count) {
 
 Assert-BuildIdentityUnchanged -ExpectedSha256 $buildIdentitySha256 `
 	-Phase "before final result merge" -RepoRoot $repoRoot `
-	-RunnerPath $runnerPath
+	-RunnerPath $runnerPath -GodotPath $godotPath
 $orderedRecords = @($completedRecords | Sort-Object Ordinal, RunId)
 $mergedLines = @($orderedRecords | ForEach-Object {
 	$line = @(Get-Content -LiteralPath $_.ResultPath | Where-Object {
@@ -979,7 +1122,9 @@ $summary = [ordered]@{
 	schema = $MatrixSchema
 	plan_id = $planId
 	plan_sha256 = $planHash
+	artifact_namespace = $artifactNamespace
 	build_identity_sha256 = $buildIdentitySha256
+	godot_executable = $buildIdentity.contract.godot_executable
 	rules_fingerprint = $expectedRulesFingerprint
 	stage = $Stage
 	stage_summary = @($stageSummary | ForEach-Object {

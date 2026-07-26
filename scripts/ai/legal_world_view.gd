@@ -10,13 +10,15 @@ func visible_enemies(actor: Node) -> Array[Node]:
 		return out
 	var arena: Node = actor.arena
 	if arena.has_method("get_visible_enemy_targets"):
-		for enemy: Node in arena.get_visible_enemy_targets(actor):
+		for enemy_value: Variant in arena.get_visible_enemy_targets(actor):
+			var enemy := _live_node(enemy_value)
 			if _valid_enemy(actor, enemy):
 				out.append(enemy)
 		return out
 	if arena.get("entities") == null:
 		return out
-	for entity: Node in arena.entities:
+	for entity_value: Variant in arena.entities:
+		var entity := _live_node(entity_value)
 		if not _valid_enemy(actor, entity):
 			continue
 		if arena.has_method("is_entity_visible_to_team") \
@@ -31,7 +33,8 @@ func known_food(actor: Node) -> Array[Dictionary]:
 	if not _valid_actor(actor) or actor.arena.get("food_sources") == null:
 		return out
 	var arena: Node = actor.arena
-	for food: Node in arena.food_sources:
+	for food_value: Variant in arena.food_sources:
+		var food := _live_node(food_value)
 		if not _valid_food(food):
 			continue
 		var kind := String(food.get("kind"))
@@ -113,8 +116,12 @@ func home_retreat_point(actor: Node) -> Vector2:
 func food_observation_is_current(actor: Node, observation: Dictionary) -> bool:
 	if not _valid_actor(actor):
 		return false
-	var resource: Node = observation.get("resource", null)
+	var resource := _live_node(observation.get("resource", null))
+	if resource == null:
+		observation.erase("resource")
+		return false
 	if not _valid_food(resource):
+		observation.erase("resource")
 		return false
 	var kind := String(resource.get("kind"))
 	if actor.has_method("can_eat_food_kind") and not actor.can_eat_food_kind(kind):
@@ -135,9 +142,9 @@ func team_snapshot(
 ) -> Dictionary:
 	var slots: Array[Dictionary] = []
 	for slot: Dictionary in slot_registry.get_team_slots(team):
-		var actor: Node = slot.get("actor", null)
+		var actor := _live_node(slot.get("actor", null))
 		var controller: Dictionary = slot.get("controller", {})
-		var alive: bool = actor != null and is_instance_valid(actor) and (not actor.has_method("is_alive") or actor.is_alive())
+		var alive: bool = actor != null and (not actor.has_method("is_alive") or actor.is_alive())
 		var health_ratio: float = 0.0
 		if alive and actor.get("max_health") != null and float(actor.get("max_health")) > 0.0:
 			health_ratio = clampf(float(actor.get("health")) / float(actor.get("max_health")), 0.0, 1.0)
@@ -155,8 +162,9 @@ func team_snapshot(
 	var contacts := _visible_team_contacts(arena, team)
 	var huts: Array[Dictionary] = []
 	if arena.get("huts") != null:
-		for hut: Node in arena.huts:
-			if hut == null or not is_instance_valid(hut) or int(hut.get("team")) != team:
+		for hut_value: Variant in arena.huts:
+			var hut := _live_node(hut_value)
+			if hut == null or int(hut.get("team")) != team:
 				continue
 			var lane_id := int(hut.get("lane_index") if hut.get("lane_index") != null else 0)
 			var threat_count := 0
@@ -191,8 +199,9 @@ func _visible_team_contacts(arena: Node, team: int) -> Array[Dictionary]:
 	var contacts: Array[Dictionary] = []
 	if arena == null or arena.get("entities") == null:
 		return contacts
-	for entity: Node in arena.entities:
-		if entity == null or not is_instance_valid(entity) or entity.get("team") == null:
+	for entity_value: Variant in arena.entities:
+		var entity := _live_node(entity_value)
+		if entity == null or entity.get("team") == null:
 			continue
 		var entity_team := int(entity.get("team"))
 		if entity_team < 0 or entity_team == team:
@@ -245,8 +254,9 @@ func _public_lane_states(arena: Node, team: int) -> Array[Dictionary]:
 	for lane_id in 2:
 		var push_point: Vector2 = arena.get_team_spawn(enemy_team) if arena.has_method("get_team_spawn") else Vector2.ZERO
 		if arena.get("huts") != null:
-			for hut: Node in arena.huts:
-				if hut == null or not is_instance_valid(hut):
+			for hut_value: Variant in arena.huts:
+				var hut := _live_node(hut_value)
+				if hut == null:
 					continue
 				if int(hut.get("team")) != enemy_team:
 					continue
@@ -279,12 +289,13 @@ func _stable_entity_key(entity: Node) -> String:
 func _valid_actor(actor: Node) -> bool:
 	return actor != null \
 		and is_instance_valid(actor) \
+		and not actor.is_queued_for_deletion() \
 		and actor.get("arena") != null \
 		and actor.get("team") != null
 
 
 func _valid_enemy(actor: Node, target: Node) -> bool:
-	if target == null or not is_instance_valid(target) or target == actor:
+	if target == null or not is_instance_valid(target) or target.is_queued_for_deletion() or target == actor:
 		return false
 	if target.get("team") == null:
 		return false
@@ -297,8 +308,15 @@ func _valid_enemy(actor: Node, target: Node) -> bool:
 
 
 func _valid_food(food: Node) -> bool:
-	if food == null or not is_instance_valid(food):
+	if food == null or not is_instance_valid(food) or food.is_queued_for_deletion():
 		return false
 	if food.has_method("is_alive") and not food.is_alive():
 		return false
 	return true
+
+
+func _live_node(value: Variant) -> Node:
+	if typeof(value) != TYPE_OBJECT or not is_instance_valid(value) or not value is Node:
+		return null
+	var node := value as Node
+	return null if node.is_queued_for_deletion() else node

@@ -9,7 +9,10 @@ function Invoke-Matrix {
 	param(
 		[hashtable]$Parameters
 	)
-	if (-not [string]::IsNullOrWhiteSpace($Godot)) {
+	if (
+		-not $Parameters.ContainsKey("Godot") -and
+		-not [string]::IsNullOrWhiteSpace($Godot)
+	) {
 		$Parameters.Godot = $Godot
 	}
 	try {
@@ -135,13 +138,14 @@ if ([int]$summary.executed_jobs -ne 0 -or [int]$summary.resumed_jobs -ne 2) {
 }
 $manifestPath = Join-Path $contractRoot "manifest.json"
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ([string]$manifest.schema -ne "battle_bog.balance_matrix.v3") {
-	throw "Matrix manifest did not use the build-safe v3 schema."
+if ([string]$manifest.schema -ne "battle_bog.balance_matrix.v4") {
+	throw "Matrix manifest did not use the engine-bound v4 schema."
 }
 if (
 	[string]::IsNullOrWhiteSpace(
 		[string]$manifest.build_identity.identity_sha256
 	) -or
+	[string]$manifest.build_identity.schema -ne "battle_bog.build_identity.v2" -or
 	[string]$manifest.contract.build_identity.identity_sha256 -ne
 		[string]$manifest.build_identity.identity_sha256 -or
 	[string]::IsNullOrWhiteSpace(
@@ -158,9 +162,33 @@ if (
 	) -or
 	[string]::IsNullOrWhiteSpace(
 		[string]$manifest.build_identity.contract.runner_gd_sha256
+	) -or
+	[string]::IsNullOrWhiteSpace(
+		[string]$manifest.build_identity.contract.godot_executable.resolved_path
+	) -or
+	[string]::IsNullOrWhiteSpace(
+		[string]$manifest.build_identity.contract.godot_executable.version_output
+	) -or
+	[string]::IsNullOrWhiteSpace(
+		[string]$manifest.build_identity.contract.godot_executable.sha256
+	) -or
+	[string]::IsNullOrWhiteSpace(
+		[string]$manifest.artifact_namespace
 	)
 ) {
 	throw "Matrix manifest is missing required deterministic build identity fields."
+}
+$summaryGodot = $summary.godot_executable
+if (
+	[string]$summary.artifact_namespace -ne [string]$manifest.artifact_namespace -or
+	[string]$summaryGodot.resolved_path -ne
+		[string]$manifest.build_identity.contract.godot_executable.resolved_path -or
+	[string]$summaryGodot.version_output -ne
+		[string]$manifest.build_identity.contract.godot_executable.version_output -or
+	[string]$summaryGodot.sha256 -ne
+		[string]$manifest.build_identity.contract.godot_executable.sha256
+) {
+	throw "Matrix summary did not preserve the manifest's engine and artifact provenance."
 }
 $resultMetadata = @(Get-ChildItem -LiteralPath (Join-Path $contractRoot "jobs") `
 	-Filter "matrix-result-metadata.json" -Recurse)
@@ -171,13 +199,131 @@ foreach ($metadataFile in $resultMetadata) {
 	$metadata = Get-Content -LiteralPath $metadataFile.FullName -Raw |
 		ConvertFrom-Json
 	if (
-		[string]$metadata.schema -ne "battle_bog.balance_matrix_result.v1" -or
+		[string]$metadata.schema -ne "battle_bog.balance_matrix_result.v2" -or
 		[string]$metadata.build_identity_sha256 -ne
 			[string]$manifest.build_identity.identity_sha256 -or
+		[string]$metadata.artifact_namespace -ne
+			[string]$manifest.artifact_namespace -or
+		[string]$metadata.godot_executable_sha256 -ne
+			[string]$manifest.build_identity.contract.godot_executable.sha256 -or
 		[string]::IsNullOrWhiteSpace([string]$metadata.result_sha256)
 	) {
 		throw "Matrix result metadata did not bind its result to the current build."
 	}
+}
+
+$alternateGodotPath = Join-Path $contractRoot "alternate-godot.cmd"
+$resolvedGodotPath = [string]$manifest.build_identity.contract.godot_executable.resolved_path
+$alternateGodotLines = @(
+	"@echo off",
+	"`"$resolvedGodotPath`" %*"
+)
+Write-Utf8NoBomLine -Path $alternateGodotPath `
+	-Line ($alternateGodotLines -join [Environment]::NewLine)
+$alternateGodotParameters = $common.Clone()
+$alternateGodotParameters.Godot = $alternateGodotPath
+$alternateGodotResult = Invoke-Matrix -Parameters $alternateGodotParameters
+if (
+	$alternateGodotResult.ExitCode -eq 0 -or
+	$alternateGodotResult.Output -notmatch "different build identity"
+) {
+	throw "OutputRoot resumed with a different resolved Godot executable."
+}
+Remove-Item -LiteralPath $alternateGodotPath -Force
+
+$parallelRootA = Join-Path $contractRoot "parallel-root-a"
+$parallelRootB = Join-Path $contractRoot "parallel-root-b"
+$parallelParameters = @(
+	@{
+		Godot = $resolvedGodotPath
+		ValidateOnly = $true
+		PairingMode = "Mirror"
+		SquadIds = @("S1")
+		Seeds = @(7L)
+		WorkerCount = 1
+		MaxJobs = 1
+		OutputRoot = $parallelRootA
+	},
+	@{
+		Godot = $resolvedGodotPath
+		ValidateOnly = $true
+		PairingMode = "Mirror"
+		SquadIds = @("S1")
+		Seeds = @(7L)
+		WorkerCount = 1
+		MaxJobs = 1
+		OutputRoot = $parallelRootB
+	}
+)
+$parallelLaunchers = @($parallelParameters | ForEach-Object {
+	Start-Job -ArgumentList $matrixRunner, $_ -ScriptBlock {
+		param(
+			[string]$InnerRunner,
+			[hashtable]$InnerParameters
+		)
+		try {
+			$innerOutput = @(& $InnerRunner @InnerParameters 2>&1 |
+				ForEach-Object { $_.ToString() })
+			[pscustomobject]@{
+				ExitCode = 0
+				Output = $innerOutput -join [Environment]::NewLine
+			}
+		} catch {
+			[pscustomobject]@{
+				ExitCode = 1
+				Output = "$($_.Exception.Message)$([Environment]::NewLine)$($_.ScriptStackTrace)"
+			}
+		}
+	}
+})
+try {
+	$parallelLaunchers | Wait-Job | Out-Null
+	$parallelResults = @($parallelLaunchers | ForEach-Object {
+		Receive-Job -Job $_
+	})
+} finally {
+	$parallelLaunchers | Remove-Job -Force -ErrorAction SilentlyContinue
+}
+if (
+	$parallelResults.Count -ne 2 -or
+	@($parallelResults | Where-Object { [int]$_.ExitCode -ne 0 }).Count -gt 0
+) {
+	throw "Same-plan launchers in separate output roots did not complete concurrently: $($parallelResults.Output -join ' | ')"
+}
+$parallelManifestA = Get-Content -LiteralPath `
+	(Join-Path $parallelRootA "manifest.json") -Raw | ConvertFrom-Json
+$parallelManifestB = Get-Content -LiteralPath `
+	(Join-Path $parallelRootB "manifest.json") -Raw | ConvertFrom-Json
+$parallelRecordA = Get-Content -LiteralPath `
+	(Join-Path $parallelRootA "results.jsonl") -Raw | ConvertFrom-Json
+$parallelRecordB = Get-Content -LiteralPath `
+	(Join-Path $parallelRootB "results.jsonl") -Raw | ConvertFrom-Json
+if (
+	[string]$parallelManifestA.plan_sha256 -ne
+		[string]$parallelManifestB.plan_sha256 -or
+	[string]$parallelManifestA.artifact_namespace -eq
+		[string]$parallelManifestB.artifact_namespace
+) {
+	throw "Separate output roots changed the logical plan or reused an artifact namespace."
+}
+if (
+	[string]$parallelRecordA.run_id -eq [string]$parallelRecordB.run_id -or
+	[string]$parallelRecordA.run_id -notmatch
+		[regex]::Escape([string]$parallelManifestA.artifact_namespace) -or
+	[string]$parallelRecordB.run_id -notmatch
+		[regex]::Escape([string]$parallelManifestB.artifact_namespace)
+) {
+	throw "Concurrent same-plan launchers reused a shared balance-sim run identity."
+}
+$balanceSimRoot = Join-Path $repoRoot "artifacts\balance-sim"
+$parallelLogA = Join-Path $balanceSimRoot "$($parallelRecordA.run_id).log"
+$parallelLogB = Join-Path $balanceSimRoot "$($parallelRecordB.run_id).log"
+if (
+	$parallelLogA -eq $parallelLogB -or
+	-not (Test-Path -LiteralPath $parallelLogA -PathType Leaf) -or
+	-not (Test-Path -LiteralPath $parallelLogB -PathType Leaf)
+) {
+	throw "Concurrent same-plan launchers did not produce isolated shared log paths."
 }
 
 $foreignMetadataPath = $resultMetadata[0].FullName
@@ -254,12 +400,23 @@ $baseIdentityJson = $manifest.build_identity | ConvertTo-Json -Depth 10 -Compres
 $changingIdentityProvider = {
 	param(
 		[string]$ProviderRepoRoot,
-		[string]$ProviderRunnerPath
+		[string]$ProviderRunnerPath,
+		[object]$ProviderGodotProvenance
 	)
 	$identityCallCount.Value++
 	$identity = $baseIdentityJson | ConvertFrom-Json
 	if ($identityCallCount.Value -ge 4) {
-		$identity.identity_sha256 = "changed-between-worker-batches"
+		$identity.contract.source_tree_sha256 = "changed-between-worker-batches"
+	}
+	$contractJson = $identity.contract | ConvertTo-Json -Depth 10 -Compress
+	$bytes = [System.Text.Encoding]::UTF8.GetBytes($contractJson)
+	$sha = [System.Security.Cryptography.SHA256]::Create()
+	try {
+		$identity.identity_sha256 = (
+			[BitConverter]::ToString($sha.ComputeHash($bytes))
+		).Replace("-", "").ToLowerInvariant()
+	} finally {
+		$sha.Dispose()
 	}
 	return $identity
 }.GetNewClosure()
@@ -383,8 +540,8 @@ $stageB5Manifest = Get-Content -LiteralPath $stageB5ManifestPath -Raw |
 	ConvertFrom-Json
 $stageB5Summary = Get-Content -LiteralPath $stageB5SummaryPath -Raw |
 	ConvertFrom-Json
-if ([string]$stageB5Manifest.schema -ne "battle_bog.balance_matrix.v3") {
-	throw "Named-stage manifest did not use the v3 matrix schema."
+if ([string]$stageB5Manifest.schema -ne "battle_bog.balance_matrix.v4") {
+	throw "Named-stage manifest did not use the v4 matrix schema."
 }
 if ([string]$stageB5Manifest.contract.stage -ne "StageB5") {
 	throw "Named-stage manifest did not retain the selected stage."

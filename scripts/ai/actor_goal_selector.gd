@@ -116,9 +116,17 @@ func _select_food_observation(actor: Node, food: Array[Dictionary]) -> Dictionar
 
 
 func _reserve_food(actor: Node, observation: Dictionary) -> void:
-	var resource: Node = observation.get("resource", null)
 	var resource_id := int(observation.get("resource_id", 0))
-	if resource == null or not is_instance_valid(resource) or resource_id == 0:
+	var resource_value: Variant = observation.get("resource", null)
+	if typeof(resource_value) != TYPE_OBJECT \
+		or not is_instance_valid(resource_value) \
+		or not resource_value is Node \
+		or (resource_value as Node).is_queued_for_deletion():
+		observation.erase("resource")
+		_release_food(actor, resource_id)
+		return
+	var resource: Node = resource_value as Node
+	if resource == null or resource_id == 0:
 		return
 	var owner_id := _reservation_owner_id(actor)
 	for reserved_id in food_reservations.keys():
