@@ -72,7 +72,7 @@ func build_frame(actor: Node, allow_autonomous_deposit := true, order: Dictionar
 	if intent_mode != "retreat" and valid_order and order_source == "player":
 		var player_order_frame := _order_frame(actor, order)
 		if player_order_frame != null:
-			return player_order_frame
+			return _finalize_frame(actor, player_order_frame)
 	var actor_priority_goal := _is_return_goal(intent) \
 		or (
 			intent_mode in [
@@ -84,25 +84,25 @@ func build_frame(actor: Node, allow_autonomous_deposit := true, order: Dictionar
 	if intent_mode != "retreat" and not actor_priority_goal and valid_order:
 		var director_order_frame := _order_frame(actor, order)
 		if director_order_frame != null:
-			return director_order_frame
+			return _finalize_frame(actor, director_order_frame)
 	var target: Node = intent.get("target", null)
 	var point: Vector2 = intent.get("point", actor.global_position + Vector2.RIGHT)
 	var mode := String(intent.get("mode", "idle"))
 	if mode == ActorGoalSelectorScript.GOAL_DEPOSIT or mode == ActorGoalSelectorScript.GOAL_RETURN_READY:
-		return _deposit_frame(actor, intent)
+		return _finalize_frame(actor, _deposit_frame(actor, intent))
 	if mode == ActorGoalSelectorScript.GOAL_FORAGE:
-		return _forage_frame(actor, intent)
+		return _finalize_frame(actor, _forage_frame(actor, intent))
 	if mode == ActorGoalSelectorScript.GOAL_FORAGE_SEARCH:
 		var routed_intent: Dictionary = goal_selector.advance_search_goal(actor, intent)
 		if routed_intent.is_empty():
-			return frame
+			return _finalize_frame(actor, frame)
 		point = routed_intent.get("point", point)
-		return _travel_frame(
+		return _finalize_frame(actor, _travel_frame(
 			actor,
 			point,
 			maxf(float(routed_intent.get("hold_radius", 32.0)), 1.0),
 			point
-		)
+		))
 	var target_position: Vector2 = target.global_position if _valid_target(target) else point
 	if mode == "retreat":
 		target_position = point
@@ -116,14 +116,14 @@ func build_frame(actor: Node, allow_autonomous_deposit := true, order: Dictionar
 
 	if mode == "retreat":
 		frame.move = _steered_move(actor, target_position, direction)
-		return frame
+		return _finalize_frame(actor, frame)
 
 	var hold_range: float = _preferred_range(actor) + _target_radius(target)
 	frame.move = _steered_move(actor, target_position, direction) if distance > hold_range else _strafe_direction(direction, actor.team)
 	if _valid_target(target):
 		frame.set_button(InputFrameScript.BUTTON_PRIMARY, distance <= _primary_range(actor, target))
 		_hook(actor).apply(actor, target, frame, distance)
-	return frame
+	return _finalize_frame(actor, frame)
 
 
 func get_goal_snapshot(actor: Node, allow_autonomous_deposit := true) -> Dictionary:
@@ -349,6 +349,13 @@ func _travel_frame(actor: Node, destination: Vector2, hold_radius: float, aim: V
 	var offset: Vector2 = destination - actor.global_position
 	if offset.length_squared() > hold_radius * hold_radius:
 		frame.move = _steered_move(actor, destination, offset.normalized())
+	return frame
+
+
+func _finalize_frame(actor: Node, frame: Resource) -> Resource:
+	var hook := _hook(actor)
+	if hook.has_method("finalize_frame"):
+		hook.finalize_frame(actor, frame)
 	return frame
 
 

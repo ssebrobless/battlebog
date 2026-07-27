@@ -73,6 +73,7 @@ func build_orders(snapshot: Dictionary, previous: Dictionary = {}) -> Dictionary
 	var demands: Array[Dictionary] = []
 	for objective: Dictionary in snapshot.get("objectives", []):
 		var state := String(objective.get("state", "dormant"))
+		var scope := String(objective.get("scope", ""))
 		var role := ""
 		var urgency := 0
 		var capacity := 0
@@ -87,7 +88,7 @@ func build_orders(snapshot: Dictionary, previous: Dictionary = {}) -> Dictionary
 				capacity = 1
 			"active":
 				role = ROLE_FIGHT_BOSS
-				urgency = 600
+				urgency = 750 if scope == "center" else 725
 				capacity = 2
 		if role.is_empty():
 			continue
@@ -95,12 +96,13 @@ func build_orders(snapshot: Dictionary, previous: Dictionary = {}) -> Dictionary
 			"role": role,
 			"role_key": "%s:%s" % [role, String(objective.get("objective_id", ""))],
 			"urgency": urgency,
+			"scope_rank": _objective_scope_rank(scope, team),
 			"capacity": capacity,
 			"destination": objective.get("center", Vector2.ZERO),
 			"extra": {
 				"objective_id": String(objective.get("objective_id", "")),
 				"hold_radius": _objective_hold_radius(objective),
-				"allow_abilities": role == ROLE_FIGHT_BOSS
+				"allow_abilities": role in [ROLE_FIGHT_BOSS, ROLE_CONTEST]
 			}
 		})
 	for hut: Dictionary in snapshot.get("huts", []):
@@ -124,6 +126,10 @@ func build_orders(snapshot: Dictionary, previous: Dictionary = {}) -> Dictionary
 		var urgency_b := int(b.get("urgency", 0))
 		if urgency_a != urgency_b:
 			return urgency_a > urgency_b
+		var scope_rank_a := int(a.get("scope_rank", 0))
+		var scope_rank_b := int(b.get("scope_rank", 0))
+		if scope_rank_a != scope_rank_b:
+			return scope_rank_a > scope_rank_b
 		return String(a.get("role_key", "")) < String(b.get("role_key", ""))
 	)
 
@@ -263,6 +269,13 @@ func _make_order(
 func _objective_hold_radius(objective: Dictionary) -> float:
 	var radius: Vector2 = objective.get("radius", Vector2(80.0, 60.0))
 	return maxf(minf(radius.x, radius.y) * 0.55, 24.0)
+
+
+func _objective_scope_rank(scope: String, team: int) -> int:
+	if scope == "center":
+		return 2
+	var home_scope := "blue" if team == 0 else "red"
+	return 1 if scope == home_scope else 0
 
 
 func _erase_slot(slots: Array[Dictionary], slot_id: String) -> void:

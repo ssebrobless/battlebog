@@ -3,6 +3,7 @@ extends SceneTree
 const TeamDirector := preload("res://scripts/ai/team_director.gd")
 
 const BLUE := 0
+const RED := 1
 
 
 func _initialize() -> void:
@@ -10,12 +11,14 @@ func _initialize() -> void:
 	var deterministic_ok: bool = _check_determinism_capacities_and_fallback(failures)
 	var ai_only_ok: bool = _check_ai_only_assignment(failures)
 	var lease_ok: bool = _check_stable_short_lease(failures)
-	var passed: bool = deterministic_ok and ai_only_ok and lease_ok
+	var objective_priority_ok: bool = _check_center_priority_and_contest_abilities(failures)
+	var passed: bool = deterministic_ok and ai_only_ok and lease_ok and objective_priority_ok
 
-	print("team_director deterministic=%s ai_only=%s lease=%s" % [
+	print("team_director deterministic=%s ai_only=%s lease=%s objective_priority=%s" % [
 		str(deterministic_ok),
 		str(ai_only_ok),
-		str(lease_ok)
+		str(lease_ok),
+		str(objective_priority_ok)
 	])
 	for failure in failures:
 		push_error(failure)
@@ -144,11 +147,71 @@ func _check_stable_short_lease(failures: Array[String]) -> bool:
 	return ok
 
 
+func _check_center_priority_and_contest_abilities(failures: Array[String]) -> bool:
+	var slots: Array[Dictionary] = [
+		_slot(0, Vector2(-110.0, 0.0)),
+		_slot(1, Vector2(90.0, 0.0)),
+		_slot(2, Vector2(110.0, 0.0))
+	]
+	var blue_active_orders: Dictionary = TeamDirector.new().build_orders(
+		_snapshot(40, slots, [
+			_objective("blue:Boss", "active", Vector2(-100.0, 0.0), "blue"),
+			_objective("red:Boss", "active", Vector2(100.0, 0.0), "red"),
+			_objective("center:Boss:1", "active", Vector2(100.0, 0.0), "center")
+		], [])
+	)
+	var red_active_orders: Dictionary = TeamDirector.new().build_orders(
+		_snapshot(40, slots, [
+			_objective("blue:Boss", "active", Vector2(-100.0, 0.0), "blue"),
+			_objective("red:Boss", "active", Vector2(100.0, 0.0), "red"),
+			_objective("center:Boss:1", "active", Vector2(100.0, 0.0), "center")
+		], [], RED)
+	)
+	var blue_counts := _objective_counts(blue_active_orders)
+	var red_counts := _objective_counts(red_active_orders)
+
+	var contest_orders: Dictionary = TeamDirector.new().build_orders(
+		_snapshot(41, slots, [
+			_objective("center:Boss:1", "contesting", Vector2.ZERO, "center")
+		], [])
+	)
+	var contest_count := 0
+	var contest_abilities := true
+	for order: Dictionary in contest_orders.values():
+		if String(order.get("role", "")) != TeamDirector.ROLE_CONTEST:
+			continue
+		contest_count += 1
+		contest_abilities = contest_abilities and bool(order.get("allow_abilities", false))
+	var ok := int(blue_counts.get("center:Boss:1", 0)) == 2 \
+		and int(blue_counts.get("blue:Boss", 0)) == 1 \
+		and int(blue_counts.get("red:Boss", 0)) == 0 \
+		and int(red_counts.get("center:Boss:1", 0)) == 2 \
+		and int(red_counts.get("red:Boss", 0)) == 1 \
+		and int(red_counts.get("blue:Boss", 0)) == 0 \
+		and contest_count == 2 \
+		and contest_abilities
+	if not ok:
+		failures.append(
+			"active center should reserve two actors before each team's home side boss, while two contest actors retain abilities; blue=%s red=%s contest=%d abilities=%s blue_orders=%s red_orders=%s contest_orders=%s"
+			% [
+				str(blue_counts),
+				str(red_counts),
+				contest_count,
+				str(contest_abilities),
+				str(blue_active_orders),
+				str(red_active_orders),
+				str(contest_orders)
+			]
+		)
+	return ok
+
+
 func _snapshot(
 	epoch: int,
 	slots: Array[Dictionary],
 	objectives: Array,
-	lanes: Array
+	lanes: Array,
+	team := BLUE
 ) -> Dictionary:
 	var typed_objectives: Array[Dictionary] = []
 	for objective: Dictionary in objectives:
@@ -158,7 +221,7 @@ func _snapshot(
 		typed_lanes.append(lane)
 	return {
 		"epoch": epoch,
-		"team": BLUE,
+		"team": team,
 		"slots": slots,
 		"objectives": typed_objectives,
 		"huts": [] as Array[Dictionary],
@@ -187,10 +250,12 @@ func _slot(
 func _objective(
 	objective_id: String,
 	state: String,
-	center: Vector2
+	center: Vector2,
+	scope := "side"
 ) -> Dictionary:
 	return {
 		"objective_id": objective_id,
+		"scope": scope,
 		"state": state,
 		"center": center,
 		"radius": Vector2(80.0, 60.0)
@@ -219,3 +284,13 @@ func _slot_for_role(orders: Dictionary, role: String) -> String:
 			slot_ids.append(slot_id)
 	slot_ids.sort()
 	return slot_ids[0] if not slot_ids.is_empty() else ""
+
+
+func _objective_counts(orders: Dictionary) -> Dictionary:
+	var counts := {}
+	for order: Dictionary in orders.values():
+		var objective_id := String(order.get("objective_id", ""))
+		if objective_id.is_empty():
+			continue
+		counts[objective_id] = int(counts.get(objective_id, 0)) + 1
+	return counts

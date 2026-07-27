@@ -175,20 +175,64 @@ func _check_bot_hook(arena: Node, failures: Array[String]) -> void:
 	actor.q_timer = 0.0
 	actor.e_timer = 0.0
 	actor.health = actor.max_health * 0.5
+	var ambush_range: float = float(actor.body_radius) * 6.0
 	var far := InputFrameScript.new()
-	arena.bot_brain._hook(actor).apply(actor, arena.player, far, actor.body_radius * 8.0)
+	arena.bot_brain._hook(actor).apply(actor, arena.player, far, ambush_range)
 	var burrows: bool = far.is_pressed(InputFrameScript.BUTTON_ABILITY_Q)
 	var eggs: bool = far.is_pressed(InputFrameScript.BUTTON_ABILITY_E)
+	var distant := InputFrameScript.new()
+	arena.bot_brain._hook(actor).apply(actor, arena.player, distant, actor.body_radius * 12.0)
+	var travels_when_distant: bool = not distant.is_pressed(InputFrameScript.BUTTON_ABILITY_Q)
 	actor.state = CreatureStateScript.State.BURROWED
 	var ambush := InputFrameScript.new()
 	arena.bot_brain._hook(actor).apply(actor, arena.player, ambush, actor.body_radius * 4.0)
 	var charges: bool = ambush.is_pressed(InputFrameScript.BUTTON_PRIMARY)
+	var surface := InputFrameScript.new()
+	arena.bot_brain._hook(actor).apply(actor, arena.player, surface, actor.body_radius * 12.0)
+	var surfaces_when_distant: bool = surface.is_pressed(InputFrameScript.BUTTON_ABILITY_Q)
 	actor.state = CreatureStateScript.State.NORMAL
-	if not burrows or not eggs or not charges:
-		failures.append("wolf spider bot should burrow at range, egg when hurt, and charge from burrow; burrows=%s eggs=%s charges=%s buttons=%d/%d" % [
+	actor.remove_modifiers_from_source("Silk-lined Burrow")
+	actor.q_timer = 0.0
+	actor.e_timer = 1.0
+	var enter := InputFrameScript.new()
+	arena.bot_brain._hook(actor).apply(actor, arena.player, enter, ambush_range)
+	actor.set_input_frame(enter)
+	actor.kit.tick(actor, 0.016)
+	var rooted_by_kit: bool = actor.state == CreatureStateScript.State.BURROWED \
+		and actor.get_modifier_value("move_speed_mult", 1.0) <= 0.0
+	var travel_destination: Vector2 = actor.global_position + Vector2.RIGHT * 400.0
+	var exit: Resource = arena.bot_brain._finalize_frame(actor, InputFrameScript.new())
+	actor.set_input_frame(exit)
+	actor.kit.tick(actor, 0.016)
+	var restored_by_kit: bool = actor.state == CreatureStateScript.State.NORMAL \
+		and actor.get_modifier_value("move_speed_mult", 1.0) >= 0.99
+	var before_travel: Vector2 = actor.global_position
+	var resumed: Resource = arena.bot_brain._travel_frame(actor, travel_destination, 10.0, travel_destination)
+	actor.set_input_frame(resumed)
+	actor._move_from_input(0.1)
+	var resumed_movement: bool = actor.global_position.distance_to(before_travel) > 0.0
+	if not burrows \
+		or not eggs \
+		or not travels_when_distant \
+		or not charges \
+		or not surfaces_when_distant \
+		or not rooted_by_kit \
+		or not restored_by_kit \
+		or not resumed_movement:
+		failures.append("wolf spider bot should travel at long range, burrow in its ambush band, charge nearby, and surface through the real travel path if the target escapes; burrows=%s eggs=%s travels=%s charges=%s surfaces=%s rooted=%s restored=%s resumed=%s speed=%.2f buttons=%d/%d/%d/%d/%d/%d" % [
 			str(burrows),
 			str(eggs),
+			str(travels_when_distant),
 			str(charges),
+			str(surfaces_when_distant),
+			str(rooted_by_kit),
+			str(restored_by_kit),
+			str(resumed_movement),
+			actor.get_modifier_value("move_speed_mult", 1.0),
 			far.buttons,
-			ambush.buttons
+			distant.buttons,
+			ambush.buttons,
+			surface.buttons,
+			enter.buttons,
+			exit.buttons
 		])
