@@ -2200,10 +2200,9 @@ func _feed_registered_inputs() -> void:
 					_apply_switch_release_gate(frame)
 				MatchSlotRegistryScript.CONTROLLER_AI:
 					ai_count += 1
-					var allow_autonomous_deposit := not (_is_1v1_trio_mode() and team == BLUE)
 					var slot_id := String(slot.get("slot_id", ""))
 					var order: Dictionary = team_orders.get(team, {}).get(slot_id, {})
-					frame = bot_brain.build_frame(actor, allow_autonomous_deposit, order)
+					frame = bot_brain.build_frame(actor, true, order)
 				_:
 					unsupported_count += 1
 					push_error("Unsupported live controller kind: %s" % controller_kind)

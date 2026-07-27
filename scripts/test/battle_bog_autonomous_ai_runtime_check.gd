@@ -27,6 +27,9 @@ class RecordingBotBrain extends RefCounted:
 		if reset_decisions:
 			delegate = BotBrainScript.new()
 
+	func reset_actor(actor: Node) -> void:
+		delegate.reset_actor(actor)
+
 	func _preferred_range(actor: Node) -> float:
 		return delegate._preferred_range(actor)
 
@@ -35,6 +38,16 @@ class RecordingBotBrain extends RefCounted:
 
 	func _hook(actor: Node) -> RefCounted:
 		return delegate._hook(actor)
+
+
+class TestLocalInput extends Node:
+	var press_deposit := false
+
+	func build_frame(aim: Vector2) -> Resource:
+		var frame := InputFrameScript.new()
+		frame.aim = aim
+		frame.set_button(InputFrameScript.BUTTON_HABITAT_DEPOSIT, press_deposit)
+		return frame
 
 
 func _initialize() -> void:
@@ -96,10 +109,21 @@ func _check_mode(mode: String, config: Node, failures: Array[String]) -> bool:
 
 	var default_ok := _check_default_shared_routing(mode, arena, recorder, failures)
 	var override_ok := _check_command_overrides(mode, arena, recorder, failures)
-	var blue_return_ok := _check_inactive_blue_return(mode, arena, recorder, failures)
+	var blue_deposit_ok := _check_inactive_blue_autonomous_deposit(mode, arena, recorder, failures)
+	var blue_switch_deposit_ok := _check_inactive_blue_deposit_after_switch(
+		mode,
+		arena,
+		recorder,
+		failures
+	)
 	var red_deposit_ok := _check_red_autonomous_deposit(mode, arena, recorder, failures)
 	var routing_ok := _check_routing(mode + " final", arena, failures)
-	return default_ok and override_ok and blue_return_ok and red_deposit_ok and routing_ok
+	return default_ok \
+		and override_ok \
+		and blue_deposit_ok \
+		and blue_switch_deposit_ok \
+		and red_deposit_ok \
+		and routing_ok
 
 
 func _check_default_shared_routing(
@@ -118,8 +142,8 @@ func _check_default_shared_routing(
 		arena,
 		recorder.calls,
 		{
-			"blue:1": false,
-			"blue:2": false,
+			"blue:1": true,
+			"blue:2": true,
 			"red:0": true,
 			"red:1": true,
 			"red:2": true
@@ -164,8 +188,8 @@ func _check_command_overrides(
 	arena._tick_team_directors(0.0)
 	arena._feed_registered_inputs()
 	var follow_calls_ok := _calls_match(arena, recorder.calls, {
-		"blue:1": false,
-		"blue:2": false,
+		"blue:1": true,
+		"blue:2": true,
 		"red:0": true,
 		"red:1": true,
 		"red:2": true
@@ -184,8 +208,8 @@ func _check_command_overrides(
 	arena._tick_team_directors(0.0)
 	arena._feed_registered_inputs()
 	var aggro_calls_ok := _calls_match(arena, recorder.calls, {
-		"blue:1": false,
-		"blue:2": false,
+		"blue:1": true,
+		"blue:2": true,
 		"red:0": true,
 		"red:1": true,
 		"red:2": true
@@ -225,7 +249,7 @@ func _check_command_overrides(
 	return ok
 
 
-func _check_inactive_blue_return(
+func _check_inactive_blue_autonomous_deposit(
 	mode: String,
 	arena: Node,
 	recorder: RecordingBotBrain,
@@ -244,6 +268,7 @@ func _check_inactive_blue_return(
 	actor.hunger_satiated = true
 	actor.global_position = habitat.get_center() + Vector2(420.0, 0.0)
 	var before_deposits := int(arena.team_stats[BLUE].get("deposits", 0))
+	var before_cues: int = arena.stock_manager.get_breeding_cues(BLUE).size()
 
 	recorder.clear_calls(true)
 	arena._feed_registered_inputs()
@@ -252,38 +277,148 @@ func _check_inactive_blue_return(
 		and _vectors_close(outside_frame.aim, habitat.get_center()) \
 		and outside_frame.move != Vector2.ZERO \
 		and not outside_frame.is_pressed(InputFrameScript.BUTTON_HABITAT_DEPOSIT)
-	var denied_policy_seen := _call_policy_for_actor(recorder.calls, actor) == 0
+	var allowed_policy_seen := _call_policy_for_actor(recorder.calls, actor) == 1
 
 	actor.global_position = habitat.get_center()
 	recorder.clear_calls(true)
 	arena._feed_registered_inputs()
 	var inside_frame: Resource = actor.input_frame
-	var waits_for_human: bool = inside_frame != null \
-		and not inside_frame.is_pressed(InputFrameScript.BUTTON_HABITAT_DEPOSIT) \
-		and bool(actor.hunger_satiated) \
-		and int(arena.team_stats[BLUE].get("deposits", 0)) == before_deposits
-	var routing_ok := _check_routing(mode + " inactive Blue return", arena, failures)
+	var after_first := int(arena.team_stats[BLUE].get("deposits", 0))
+	var cues_after_first: int = arena.stock_manager.get_breeding_cues(BLUE).size()
 
-	var ok: bool = returns_home and denied_policy_seen and waits_for_human and routing_ok
+	recorder.clear_calls()
+	arena._feed_registered_inputs()
+	var second_frame: Resource = actor.input_frame
+	var after_second := int(arena.team_stats[BLUE].get("deposits", 0))
+	var cues_after_second: int = arena.stock_manager.get_breeding_cues(BLUE).size()
+	var deposits_once: bool = inside_frame != null \
+		and inside_frame.is_pressed(InputFrameScript.BUTTON_HABITAT_DEPOSIT) \
+		and after_first == before_deposits + 1 \
+		and cues_after_first == before_cues + 1 \
+		and not bool(actor.hunger_satiated) \
+		and is_equal_approx(float(actor.hunger), 80.0) \
+		and second_frame != null \
+		and not second_frame.is_pressed(InputFrameScript.BUTTON_HABITAT_DEPOSIT) \
+		and after_second == after_first \
+		and cues_after_second == cues_after_first
+	var routing_ok := _check_routing(mode + " inactive Blue deposit", arena, failures)
+
+	var ok: bool = returns_home and allowed_policy_seen and deposits_once and routing_ok
 	if not ok:
 		failures.append(
 			(
-				"%s satiated inactive Blue1 should return home through BotBrain but wait for a "
-				+ "human deposit; returns=%s policy=%d waits=%s deposits=%d->%d "
-				+ "aim=%s move=%s orders=%s"
+				"%s satiated inactive Blue1 should return home and autonomously deposit exactly "
+				+ "once; returns=%s policy=%d once=%s deposits=%d->%d->%d "
+				+ "cues=%d->%d->%d aim=%s move=%s orders=%s"
 			)
 			% [
 				mode,
 				str(returns_home),
 				_call_policy_for_actor(recorder.calls, actor),
-				str(waits_for_human),
+				str(deposits_once),
 				before_deposits,
-				int(arena.team_stats[BLUE].get("deposits", 0)),
+				after_first,
+				after_second,
+				before_cues,
+				cues_after_first,
+				cues_after_second,
 				str(outside_frame.aim if outside_frame != null else null),
 				str(outside_frame.move if outside_frame != null else null),
 				str(arena.get_team_order_state(BLUE))
 			]
 		)
+	return ok
+
+
+func _check_inactive_blue_deposit_after_switch(
+	mode: String,
+	arena: Node,
+	recorder: RecordingBotBrain,
+	failures: Array[String]
+) -> bool:
+	_prepare_neutral_actors(arena)
+	arena._set_active_squad_index(2, false)
+	recorder.clear_calls(true)
+	arena._feed_registered_inputs()
+	var inactive_actor: Node = _slot_actor(arena, BLUE, 0)
+	var active_actor: Node = _slot_actor(arena, BLUE, 2)
+	if inactive_actor == null or active_actor == null:
+		failures.append("%s could not inspect Blue actors after controller swap" % mode)
+		return false
+
+	inactive_actor.global_position = arena.terrain_map.get_team_habitat_rect(BLUE).get_center()
+	inactive_actor.hunger = 100.0
+	inactive_actor.hunger_satiated = true
+	active_actor.global_position = arena.terrain_map.get_team_habitat_rect(BLUE).get_center()
+	active_actor.hunger = 100.0
+	active_actor.hunger_satiated = true
+	var before_deposits := int(arena.team_stats[BLUE].get("deposits", 0))
+	var before_cues: int = arena.stock_manager.get_breeding_cues(BLUE).size()
+	var original_local_input: Node = arena.local_input
+	var test_local_input := TestLocalInput.new()
+	arena.add_child(test_local_input)
+	arena.local_input = test_local_input
+
+	recorder.clear_calls(true)
+	arena._feed_registered_inputs()
+	var first_frame: Resource = inactive_actor.input_frame
+	var after_first := int(arena.team_stats[BLUE].get("deposits", 0))
+	var cues_after_first: int = arena.stock_manager.get_breeding_cues(BLUE).size()
+	var inactive_policy := _call_policy_for_actor(recorder.calls, inactive_actor)
+	var active_policy := _call_policy_for_actor(recorder.calls, active_actor)
+	var active_waited: bool = bool(active_actor.hunger_satiated) \
+		and is_equal_approx(float(active_actor.hunger), 100.0)
+
+	test_local_input.press_deposit = true
+	recorder.clear_calls()
+	arena._feed_registered_inputs()
+	var second_frame: Resource = inactive_actor.input_frame
+	var after_second := int(arena.team_stats[BLUE].get("deposits", 0))
+	var cues_after_second: int = arena.stock_manager.get_breeding_cues(BLUE).size()
+	var active_manual_frame: Resource = active_actor.input_frame
+
+	recorder.clear_calls()
+	arena._feed_registered_inputs()
+	var after_third := int(arena.team_stats[BLUE].get("deposits", 0))
+	var cues_after_third: int = arena.stock_manager.get_breeding_cues(BLUE).size()
+	var ok: bool = arena.active_squad_index == 2 \
+		and arena.player == active_actor \
+		and inactive_policy == 1 \
+		and active_policy == -1 \
+		and active_waited \
+		and first_frame != null \
+		and first_frame.is_pressed(InputFrameScript.BUTTON_HABITAT_DEPOSIT) \
+		and after_first == before_deposits + 1 \
+		and cues_after_first == before_cues + 1 \
+		and second_frame != null \
+		and not second_frame.is_pressed(InputFrameScript.BUTTON_HABITAT_DEPOSIT) \
+		and active_manual_frame != null \
+		and active_manual_frame.is_pressed(InputFrameScript.BUTTON_HABITAT_DEPOSIT) \
+		and after_second == after_first + 1 \
+		and cues_after_second == cues_after_first + 1 \
+		and after_third == after_second \
+		and cues_after_third == cues_after_second
+	if not ok:
+		failures.append(
+			"%s controller swap should auto-deposit only inactive Blue0 and require explicit local input for active Blue1; inactive_policy=%d active_policy=%d active_waited=%s deposits=%d->%d->%d->%d cues=%d->%d->%d->%d"
+			% [
+				mode,
+				inactive_policy,
+				active_policy,
+				str(active_waited),
+				before_deposits,
+				after_first,
+				after_second,
+				after_third,
+				before_cues,
+				cues_after_first,
+				cues_after_second,
+				cues_after_third
+			]
+		)
+	arena.local_input = original_local_input
+	test_local_input.free()
+	arena._set_active_squad_index(0, false)
 	return ok
 
 
