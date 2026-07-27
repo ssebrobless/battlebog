@@ -74,7 +74,13 @@ func build_frame(actor: Node, allow_autonomous_deposit := true, order: Dictionar
 		if player_order_frame != null:
 			return player_order_frame
 	var actor_priority_goal := _is_return_goal(intent) \
-		or intent_mode == ActorGoalSelectorScript.GOAL_FORAGE
+		or (
+			intent_mode in [
+				ActorGoalSelectorScript.GOAL_FORAGE,
+				ActorGoalSelectorScript.GOAL_FORAGE_SEARCH
+			]
+			and String(order.get("role", "")) == "pressure_lane"
+		)
 	if intent_mode != "retreat" and not actor_priority_goal and valid_order:
 		var director_order_frame := _order_frame(actor, order)
 		if director_order_frame != null:
@@ -86,6 +92,17 @@ func build_frame(actor: Node, allow_autonomous_deposit := true, order: Dictionar
 		return _deposit_frame(actor, intent)
 	if mode == ActorGoalSelectorScript.GOAL_FORAGE:
 		return _forage_frame(actor, intent)
+	if mode == ActorGoalSelectorScript.GOAL_FORAGE_SEARCH:
+		var routed_intent: Dictionary = goal_selector.advance_search_goal(actor, intent)
+		if routed_intent.is_empty():
+			return frame
+		point = routed_intent.get("point", point)
+		return _travel_frame(
+			actor,
+			point,
+			maxf(float(routed_intent.get("hold_radius", 32.0)), 1.0),
+			point
+		)
 	var target_position: Vector2 = target.global_position if _valid_target(target) else point
 	if mode == "retreat":
 		target_position = point
@@ -165,9 +182,15 @@ func _cached_intent_valid(actor: Node, intent: Dictionary, age_frames: int, allo
 	if typeof(target_value) != TYPE_NIL and not _is_valid_node_reference(target_value):
 		return false
 	if mode in [
+		ActorGoalSelectorScript.GOAL_FORAGE,
+		ActorGoalSelectorScript.GOAL_FORAGE_SEARCH
+	] and not _best_scored_target_intent(actor).is_empty():
+		return false
+	if mode in [
 		ActorGoalSelectorScript.GOAL_DEPOSIT,
 		ActorGoalSelectorScript.GOAL_RETURN_READY,
-		ActorGoalSelectorScript.GOAL_FORAGE
+		ActorGoalSelectorScript.GOAL_FORAGE,
+		ActorGoalSelectorScript.GOAL_FORAGE_SEARCH
 	]:
 		var observation_value: Variant = intent.get("food", {})
 		if observation_value is Dictionary:
@@ -194,12 +217,27 @@ func _choose_intent(actor: Node, allow_autonomous_deposit := true) -> Dictionary
 		return retreat_intent
 
 	var actor_goal: Dictionary = goal_selector.choose_goal(actor, allow_autonomous_deposit)
-	if not actor_goal.is_empty():
+	var actor_goal_mode := String(actor_goal.get("mode", ""))
+	if actor_goal_mode in [
+		ActorGoalSelectorScript.GOAL_DEPOSIT,
+		ActorGoalSelectorScript.GOAL_RETURN_READY
+	]:
 		return actor_goal
 
 	var defense: Dictionary = _defense_intent(actor, candidates)
 	if not defense.is_empty():
 		return defense
+
+	var scored_target_intent := _best_scored_target_intent(actor, candidates)
+	if not scored_target_intent.is_empty():
+		return scored_target_intent
+
+	if actor_goal_mode == ActorGoalSelectorScript.GOAL_FORAGE:
+		return actor_goal
+
+	var search_goal: Dictionary = goal_selector.choose_search_goal(actor)
+	if not search_goal.is_empty():
+		return search_goal
 
 	var target_intent := _best_target_intent(actor, candidates)
 	if not target_intent.is_empty():
@@ -470,6 +508,16 @@ func _best_target_intent(actor: Node, candidates: Variant = null) -> Dictionary:
 		return {}
 	_set_sticky_target(actor, best_target)
 	return {"mode": best_mode, "target": best_target}
+
+
+func _best_scored_target_intent(actor: Node, candidates: Variant = null) -> Dictionary:
+	var scored_candidates: Array[Node] = []
+	var visible_candidates: Array[Node] = candidates if candidates is Array else _target_candidates(actor)
+	for candidate: Node in visible_candidates:
+		if candidate.has_method("is_scored_actor") and candidate.is_scored_actor():
+			scored_candidates.append(candidate)
+	return _best_target_intent(actor, scored_candidates)
+
 
 func _target_candidates(actor: Node) -> Array[Node]:
 	var candidates: Array[Node] = []

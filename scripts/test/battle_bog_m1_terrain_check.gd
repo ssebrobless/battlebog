@@ -251,6 +251,8 @@ func _food_resources_ok(food_entries: Array) -> bool:
 		if String(entry.get("kind", "")) != "plant":
 			if String(entry.get("kind", "")) == "critter":
 				critter_count += 1
+				if absf(float(entry.get("food_value", 0.0)) - 24.0) > 0.001:
+					return false
 			continue
 		var side := String(entry.get("side", ""))
 		var plant_type := String(entry.get("plant_type", ""))

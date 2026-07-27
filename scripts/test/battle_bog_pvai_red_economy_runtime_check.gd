@@ -165,6 +165,13 @@ func _check_natural_red_economy(arena: Node, failures: Array[String]) -> void:
 				"%s consumed wrong food kind: expected=%s event=%s"
 				% [slot_id, expected_kind, str(event)]
 			)
+		var hunger_after := float(event.get("hunger_after", -1.0))
+		var satiated := bool(event.get("satiated", false))
+		if hunger_after < 0.0 or satiated != is_equal_approx(hunger_after, 100.0):
+			failures.append(
+				"%s food telemetry should capture post-consumption hunger and satiation; event=%s"
+				% [slot_id, str(event)]
+			)
 
 	if deposit_event.is_empty():
 		failures.append(

@@ -82,6 +82,63 @@ func known_food(actor: Node) -> Array[Dictionary]:
 	return out
 
 
+func resource_search_cues(actor: Node) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if not _valid_actor(actor) \
+		or not actor.has_method("can_eat_food_kind") \
+		or not actor.can_eat_food_kind("critter") \
+		or actor.can_eat_food_kind("plant") \
+		or not is_designated_resource_searcher(actor) \
+		or not actor.arena.has_method("get_animal_zone_state"):
+		return out
+	var side := "blue" if int(actor.team) == 0 else "red"
+	for zone: Dictionary in actor.arena.get_animal_zone_state(side):
+		if bool(zone.get("boss", false)) or bool(zone.get("center_boss", false)):
+			continue
+		var cue_id := String(zone.get("id", ""))
+		if cue_id.is_empty():
+			cue_id = "%s:%s" % [side, String(zone.get("group", ""))]
+		var point: Vector2 = zone.get("center", Vector2.INF)
+		if cue_id.ends_with(":") or point == Vector2.INF:
+			continue
+		out.append({
+			"cue_id": cue_id,
+			"point": point,
+			"kind": "ecology_zone",
+			"hold_radius": 32.0
+		})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return String(a.get("cue_id", "")) < String(b.get("cue_id", ""))
+	)
+	return out
+
+
+func is_designated_resource_searcher(actor: Node) -> bool:
+	var registry = actor.arena.get("slot_registry")
+	if registry == null or not registry.has_method("get_team_slots"):
+		return true
+	var candidates: Array[Dictionary] = []
+	for slot: Dictionary in registry.get_team_slots(int(actor.team)):
+		var controller: Dictionary = slot.get("controller", {})
+		if String(controller.get("kind", "")) != "ai":
+			continue
+		var slot_actor := _live_node(slot.get("actor", null))
+		if slot_actor == null \
+			or (slot_actor.has_method("is_alive") and not slot_actor.is_alive()) \
+			or (slot_actor.has_method("is_satiated") and slot_actor.is_satiated()) \
+			or not slot_actor.has_method("can_eat_food_kind") \
+			or not slot_actor.can_eat_food_kind("critter") \
+			or slot_actor.can_eat_food_kind("plant"):
+			continue
+		candidates.append(slot)
+	if candidates.is_empty():
+		return false
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a.get("slot_index", 0)) < int(b.get("slot_index", 0))
+	)
+	return candidates.front().get("actor", null) == actor
+
+
 func nearest_visible_enemy(actor: Node, max_distance: float) -> Node:
 	var closest: Node = null
 	var closest_distance := max_distance

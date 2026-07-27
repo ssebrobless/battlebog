@@ -2865,9 +2865,13 @@ func _food_hit_shape_hit(shape: Dictionary, food: Node) -> bool:
 func record_food_consumed(actor: Node, food_kind: String, hunger_gain: float) -> void:
 	var food_label := "plant" if food_kind == FoodSourceScript.KIND_PLANT else "critter"
 	var actor_name: String = actor.get_actor_name() if actor != null and actor.has_method("get_actor_name") else "Creature"
+	var hunger_after := float(actor.get("hunger")) if actor != null and actor.get("hunger") != null else 0.0
+	var satiated: bool = actor != null and actor.has_method("is_satiated") and actor.is_satiated()
 	_record_economy_event(actor, "food_consumed", {
 		"food_kind": food_kind,
-		"hunger_gain": hunger_gain
+		"hunger_gain": hunger_gain,
+		"hunger_after": hunger_after,
+		"satiated": satiated
 	})
 	if hunger_gain > 0.0:
 		add_kill_feed("%s ate %s (+%d hunger)" % [actor_name, food_label, int(round(hunger_gain))])

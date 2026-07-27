@@ -51,15 +51,31 @@ class FakeActor extends Node2D:
 
 class FakeSlotRegistry extends RefCounted:
 	var actor_slots := {}
+	var team_slots := {0: [], 1: []}
 
-	func register_actor(actor: Node, slot_id: String) -> void:
-		actor_slots[actor.get_instance_id()] = slot_id
+	func register_actor(actor: Node, slot_id: String, controller_kind := "ai") -> void:
+		var team := 0 if slot_id.begins_with("blue:") else 1
+		var separator := slot_id.rfind(":")
+		var slot_index := int(slot_id.substr(separator + 1)) if separator >= 0 else 0
+		var slot := {
+			"slot_id": slot_id,
+			"slot_index": slot_index,
+			"actor": actor,
+			"controller": {"kind": controller_kind}
+		}
+		actor_slots[actor.get_instance_id()] = slot
+		team_slots[team].append(slot)
 
 	func get_slot_for_actor(actor: Object) -> Dictionary:
 		if actor == null or not is_instance_valid(actor):
 			return {}
-		var slot_id := String(actor_slots.get(actor.get_instance_id(), ""))
-		return {"slot_id": slot_id} if not slot_id.is_empty() else {}
+		return actor_slots.get(actor.get_instance_id(), {})
+
+	func get_team_slots(team: int) -> Array[Dictionary]:
+		var out: Array[Dictionary] = []
+		for slot: Dictionary in team_slots.get(team, []):
+			out.append(slot)
+		return out
 
 
 class FakeArena extends Node2D:
@@ -70,6 +86,13 @@ class FakeArena extends Node2D:
 	var visible_entities := {}
 	var habitat := Rect2(-50.0, -50.0, 100.0, 100.0)
 	var slot_registry: RefCounted = null
+	var animal_zones: Array[Dictionary] = [
+		{"id": "blue:A", "side": "blue", "group": "A", "center": Vector2(100.0, 0.0), "boss": false},
+		{"id": "blue:B", "side": "blue", "group": "B", "center": Vector2(200.0, 0.0), "boss": false},
+		{"id": "blue:C", "side": "blue", "group": "C", "center": Vector2(300.0, 0.0), "boss": false},
+		{"id": "blue:D", "side": "blue", "group": "D", "center": Vector2(400.0, 0.0), "boss": false},
+		{"id": "blue:Boss", "side": "blue", "group": "Boss", "center": Vector2(500.0, 0.0), "boss": true}
+	]
 
 	func add_actor(actor: FakeActor) -> FakeActor:
 		add_child(actor)
@@ -111,6 +134,14 @@ class FakeArena extends Node2D:
 	func get_team_spawn(_team: int) -> Vector2:
 		return habitat.get_center()
 
+	func get_animal_zone_state(side := "") -> Array[Dictionary]:
+		var out: Array[Dictionary] = []
+		for zone: Dictionary in animal_zones:
+			if not String(side).is_empty() and String(zone.get("side", "")) != String(side):
+				continue
+			out.append(zone.duplicate(true))
+		return out
+
 	func get_enemy_core(_team: int) -> Node:
 		return null
 
@@ -133,9 +164,13 @@ func _initialize() -> void:
 	var diet_ok := _check_diet_filtering(failures)
 	var threat_ok := _check_visible_threat_suppresses_economy(failures)
 	var forage_ok := _check_low_hunger_selects_forage(failures)
+	var diet_threshold_ok := _check_diet_aware_forage_threshold(failures)
 	var commitment_ok := _check_multi_food_forage_commitment(failures)
-	var threat_cancel_ok := _check_threat_cancels_forage_commitment(failures)
+	var threat_suspend_ok := _check_threat_suspends_forage_commitment(failures)
+	var search_ok := _check_visibility_safe_forage_search(failures)
+	var designation_ok := _check_designated_resource_searcher(failures)
 	var satiation_cancel_ok := _check_satiation_cancels_forage_commitment(failures)
+	var threatened_satiation_ok := _check_threatened_satiation_clears_search(failures)
 	var reset_ok := _check_reset_cancels_forage_commitment(failures)
 	var fanout_ok := _check_allied_food_reservation_fanout(failures)
 	var harvest_ok := _check_attack_harvest_primary(failures)
@@ -147,9 +182,13 @@ func _initialize() -> void:
 		and diet_ok \
 		and threat_ok \
 		and forage_ok \
+		and diet_threshold_ok \
 		and commitment_ok \
-		and threat_cancel_ok \
+		and threat_suspend_ok \
+		and search_ok \
+		and designation_ok \
 		and satiation_cancel_ok \
+		and threatened_satiation_ok \
 		and reset_ok \
 		and fanout_ok \
 		and harvest_ok \
@@ -157,16 +196,20 @@ func _initialize() -> void:
 		and assisted_ok \
 		and deterministic_ok
 	print(
-		"actor_goal_selector hidden=%s last_known=%s diet=%s threat=%s forage=%s commitment=%s threat_cancel=%s satiation_cancel=%s reset=%s fanout=%s harvest=%s deposit=%s assisted=%s deterministic=%s"
+		"actor_goal_selector hidden=%s last_known=%s diet=%s threat=%s forage=%s diet_threshold=%s commitment=%s threat_suspend=%s search=%s designation=%s satiation_cancel=%s threatened_satiation=%s reset=%s fanout=%s harvest=%s deposit=%s assisted=%s deterministic=%s"
 		% [
 			str(hidden_ok),
 			str(last_known_ok),
 			str(diet_ok),
 			str(threat_ok),
 			str(forage_ok),
+			str(diet_threshold_ok),
 			str(commitment_ok),
-			str(threat_cancel_ok),
+			str(threat_suspend_ok),
+			str(search_ok),
+			str(designation_ok),
 			str(satiation_cancel_ok),
+			str(threatened_satiation_ok),
 			str(reset_ok),
 			str(fanout_ok),
 			str(harvest_ok),
@@ -286,6 +329,86 @@ func _check_low_hunger_selects_forage(failures: Array[String]) -> bool:
 	return ok
 
 
+func _check_diet_aware_forage_threshold(failures: Array[String]) -> bool:
+	var carnivore_at_threshold := _threshold_case_goal(
+		["critter"],
+		"critter",
+		ActorGoalSelectorScript.CRITTER_ONLY_FORAGE_ENTER_HUNGER
+	)
+	var carnivore_above_threshold := _threshold_case_goal(
+		["critter"],
+		"critter",
+		ActorGoalSelectorScript.CRITTER_ONLY_FORAGE_ENTER_HUNGER + 0.01
+	)
+	var plant_capable_at_88 := _threshold_case_goal(
+		["plant", "critter"],
+		"plant",
+		ActorGoalSelectorScript.CRITTER_ONLY_FORAGE_ENTER_HUNGER
+	)
+	var plant_capable_at_70 := _threshold_case_goal(
+		["plant", "critter"],
+		"plant",
+		ActorGoalSelectorScript.FORAGE_ENTER_HUNGER
+	)
+	var incompatible_food := _threshold_case_goal(
+		["critter"],
+		"plant",
+		ActorGoalSelectorScript.CRITTER_ONLY_FORAGE_ENTER_HUNGER
+	)
+	var threatened_carnivore := _threshold_case_goal(
+		["critter"],
+		"critter",
+		ActorGoalSelectorScript.CRITTER_ONLY_FORAGE_ENTER_HUNGER,
+		true
+	)
+	var ok := (
+		String(carnivore_at_threshold.get("mode", "")) == ActorGoalSelectorScript.GOAL_FORAGE
+		and carnivore_above_threshold.is_empty()
+		and plant_capable_at_88.is_empty()
+		and String(plant_capable_at_70.get("mode", "")) == ActorGoalSelectorScript.GOAL_FORAGE
+		and incompatible_food.is_empty()
+		and threatened_carnivore.is_empty()
+	)
+	if not ok:
+		failures.append(
+			"forage_threshold expected critter-only=100, plant-capable=70, and unchanged diet/threat gates; "
+			+ "carnivore=%s above=%s plant88=%s plant70=%s incompatible=%s threatened=%s"
+			% [
+				str(carnivore_at_threshold),
+				str(carnivore_above_threshold),
+				str(plant_capable_at_88),
+				str(plant_capable_at_70),
+				str(incompatible_food),
+				str(threatened_carnivore)
+			]
+		)
+	return ok
+
+
+func _threshold_case_goal(
+	allowed_food_kinds: Array[String],
+	food_kind: String,
+	hunger: float,
+	with_threat := false
+) -> Dictionary:
+	var arena := FakeArena.new()
+	get_root().add_child(arena)
+	var actor := arena.add_actor(FakeActor.new())
+	actor.allowed_food_kinds = allowed_food_kinds
+	actor.hunger = hunger
+	var food := arena.add_food(FakeFood.new())
+	food.kind = food_kind
+	food.global_position = Vector2(80.0, 0.0)
+	if with_threat:
+		var enemy := arena.add_actor(FakeActor.new())
+		enemy.team = 1
+		enemy.global_position = Vector2(100.0, 0.0)
+		arena.set_entity_visible(enemy, true)
+	var goal: Dictionary = ActorGoalSelectorScript.new().choose_goal(actor)
+	arena.free()
+	return goal
+
+
 func _check_multi_food_forage_commitment(failures: Array[String]) -> bool:
 	var arena := FakeArena.new()
 	get_root().add_child(arena)
@@ -317,7 +440,7 @@ func _check_multi_food_forage_commitment(failures: Array[String]) -> bool:
 	return ok
 
 
-func _check_threat_cancels_forage_commitment(failures: Array[String]) -> bool:
+func _check_threat_suspends_forage_commitment(failures: Array[String]) -> bool:
 	var arena := FakeArena.new()
 	get_root().add_child(arena)
 	var actor := arena.add_actor(FakeActor.new())
@@ -326,23 +449,156 @@ func _check_threat_cancels_forage_commitment(failures: Array[String]) -> bool:
 	food.global_position = Vector2(40.0, 0.0)
 	var selector := ActorGoalSelectorScript.new()
 	var initial_goal: Dictionary = selector.choose_goal(actor)
+	var resource_id := int(initial_goal.get("food", {}).get("resource_id", 0))
 	actor.hunger = 88.0
 	var enemy := arena.add_actor(FakeActor.new())
 	enemy.team = 1
 	enemy.global_position = Vector2(100.0, 0.0)
 	arena.set_entity_visible(enemy, true)
+	var cached_goal_invalid := not selector.goal_is_valid(actor, initial_goal)
+	var reservation_released := resource_id != 0 and not selector.food_reservations.has(resource_id)
 	var threatened_goal: Dictionary = selector.choose_goal(actor)
 	arena.set_entity_visible(enemy, false)
 	var after_threat_goal: Dictionary = selector.choose_goal(actor)
+	var uncommitted_actor := arena.add_actor(FakeActor.new())
+	uncommitted_actor.hunger = 88.01
+	arena.set_entity_visible(enemy, true)
+	var uncommitted_threat_goal: Dictionary = selector.choose_goal(uncommitted_actor)
+	arena.set_entity_visible(enemy, false)
+	var uncommitted_after_goal: Dictionary = selector.choose_goal(uncommitted_actor)
 	var ok: bool = String(initial_goal.get("mode", "")) == ActorGoalSelectorScript.GOAL_FORAGE \
+		and cached_goal_invalid \
+		and reservation_released \
 		and threatened_goal.is_empty() \
-		and after_threat_goal.is_empty()
+		and String(after_threat_goal.get("mode", "")) == ActorGoalSelectorScript.GOAL_FORAGE \
+		and uncommitted_threat_goal.is_empty() \
+		and uncommitted_after_goal.is_empty()
 	if not ok:
-		failures.append("threat_cancel expected danger to clear commitment above entry hunger; initial=%s threatened=%s after=%s" % [
+		failures.append("threat_suspend expected danger to release the reservation, preserve only an existing commitment, and resume afterward; initial=%s cached_invalid=%s released=%s threatened=%s after=%s uncommitted_threat=%s uncommitted_after=%s" % [
 			str(initial_goal),
+			str(cached_goal_invalid),
+			str(reservation_released),
 			str(threatened_goal),
-			str(after_threat_goal)
+			str(after_threat_goal),
+			str(uncommitted_threat_goal),
+			str(uncommitted_after_goal)
 		])
+	arena.free()
+	return ok
+
+
+func _check_visibility_safe_forage_search(failures: Array[String]) -> bool:
+	var arena := FakeArena.new()
+	get_root().add_child(arena)
+	arena.slot_registry = FakeSlotRegistry.new()
+	arena.animal_zones.reverse()
+	var actor := arena.add_actor(FakeActor.new())
+	actor.allowed_food_kinds = ["critter"]
+	actor.hunger = ActorGoalSelectorScript.CRITTER_ONLY_FORAGE_ENTER_HUNGER
+	arena.slot_registry.register_actor(actor, "blue:1")
+	var hidden_food := arena.add_food(FakeFood.new())
+	hidden_food.kind = "critter"
+	hidden_food.global_position = Vector2(9876.0, 5432.0)
+	arena.set_food_state(hidden_food, false, "hidden", Vector2.INF)
+	var selector := ActorGoalSelectorScript.new()
+	var direct_goal: Dictionary = selector.choose_goal(actor)
+	var first_search: Dictionary = selector.choose_search_goal(actor)
+	var first_point: Vector2 = first_search.get("point", Vector2.INF)
+	actor.global_position = first_point
+	var arrived_valid := selector.goal_is_valid(actor, first_search)
+	var second_search: Dictionary = selector.advance_search_goal(actor, first_search)
+	var visible_food := arena.add_food(FakeFood.new())
+	visible_food.kind = "critter"
+	visible_food.global_position = actor.global_position + Vector2(20.0, 0.0)
+	var visible_goal: Dictionary = selector.choose_goal(actor)
+	var search_with_visible_food: Dictionary = selector.choose_search_goal(actor)
+	var uncommitted := arena.add_actor(FakeActor.new())
+	uncommitted.allowed_food_kinds = ["critter"]
+	uncommitted.hunger = ActorGoalSelectorScript.CRITTER_ONLY_FORAGE_ENTER_HUNGER + 0.01
+	arena.slot_registry.register_actor(uncommitted, "blue:2")
+	var uncommitted_search: Dictionary = selector.choose_search_goal(uncommitted)
+	var ok := direct_goal.is_empty() \
+		and String(first_search.get("mode", "")) == ActorGoalSelectorScript.GOAL_FORAGE_SEARCH \
+		and String(first_search.get("cue_id", "")) == "blue:B" \
+		and not first_search.has("resource") \
+		and not first_search.has("resource_id") \
+		and first_point != hidden_food.global_position \
+		and arrived_valid \
+		and String(second_search.get("cue_id", "")) == "blue:C" \
+		and String(visible_goal.get("mode", "")) == ActorGoalSelectorScript.GOAL_FORAGE \
+		and search_with_visible_food.is_empty() \
+		and uncommitted_search.is_empty()
+	if not ok:
+		failures.append(
+			"forage_search expected stable slot-spread public cues, owned-movement arrival advancement, no hidden resource reference, and visible-food preemption; direct=%s first=%s arrived_valid=%s second=%s visible=%s search_visible=%s uncommitted=%s"
+			% [
+				str(direct_goal),
+				str(first_search),
+				str(arrived_valid),
+				str(second_search),
+				str(visible_goal),
+				str(search_with_visible_food),
+				str(uncommitted_search)
+			]
+		)
+	arena.free()
+	return ok
+
+
+func _check_designated_resource_searcher(failures: Array[String]) -> bool:
+	var arena := FakeArena.new()
+	get_root().add_child(arena)
+	arena.slot_registry = FakeSlotRegistry.new()
+	var human := arena.add_actor(FakeActor.new())
+	human.allowed_food_kinds = ["critter"]
+	var first_ai := arena.add_actor(FakeActor.new())
+	first_ai.allowed_food_kinds = ["critter"]
+	var second_ai := arena.add_actor(FakeActor.new())
+	second_ai.allowed_food_kinds = ["critter"]
+	arena.slot_registry.register_actor(human, "blue:0", "player")
+	arena.slot_registry.register_actor(first_ai, "blue:1", "ai")
+	arena.slot_registry.register_actor(second_ai, "blue:2", "ai")
+	var food := arena.add_food(FakeFood.new())
+	food.kind = "critter"
+	food.global_position = Vector2(20.0, 0.0)
+	var view := LegalWorldViewScript.new()
+	var human_cues := view.resource_search_cues(human)
+	var first_ai_cues := view.resource_search_cues(first_ai)
+	var second_ai_cues := view.resource_search_cues(second_ai)
+	var selector := ActorGoalSelectorScript.new()
+	var human_goal := selector.choose_goal(human)
+	var first_ai_goal := selector.choose_goal(first_ai)
+	var second_ai_goal := selector.choose_goal(second_ai)
+	first_ai.satiated = true
+	var satiated_handoff_cues := view.resource_search_cues(second_ai)
+	var satiated_handoff_goal := selector.choose_goal(second_ai)
+	first_ai.satiated = false
+	first_ai.health = 0.0
+	var death_handoff_cues := view.resource_search_cues(second_ai)
+	var ok := human_cues.is_empty() \
+		and first_ai_cues.size() == 4 \
+		and second_ai_cues.is_empty() \
+		and human_goal.is_empty() \
+		and String(first_ai_goal.get("mode", "")) == ActorGoalSelectorScript.GOAL_FORAGE \
+		and second_ai_goal.is_empty() \
+		and satiated_handoff_cues.size() == 4 \
+		and String(satiated_handoff_goal.get("mode", "")) == ActorGoalSelectorScript.GOAL_FORAGE \
+		and death_handoff_cues.size() == 4
+	if not ok:
+		failures.append(
+			"resource_search_designation expected one eligible live, unsatiated AI to own search and direct forage with handoff; human_cues=%d first_cues=%d second_cues=%d human_goal=%s first_goal=%s second_goal=%s satiated_cues=%d satiated_goal=%s death_cues=%d"
+			% [
+				human_cues.size(),
+				first_ai_cues.size(),
+				second_ai_cues.size(),
+				str(human_goal),
+				str(first_ai_goal),
+				str(second_ai_goal),
+				satiated_handoff_cues.size(),
+				str(satiated_handoff_goal),
+				death_handoff_cues.size()
+			]
+		)
 	arena.free()
 	return ok
 
@@ -370,6 +626,44 @@ func _check_satiation_cancels_forage_commitment(failures: Array[String]) -> bool
 			str(satiated_goal),
 			str(after_satiation_goal)
 		])
+	arena.free()
+	return ok
+
+
+func _check_threatened_satiation_clears_search(failures: Array[String]) -> bool:
+	var arena := FakeArena.new()
+	get_root().add_child(arena)
+	var actor := arena.add_actor(FakeActor.new())
+	actor.allowed_food_kinds = ["critter"]
+	actor.hunger = ActorGoalSelectorScript.CRITTER_ONLY_FORAGE_ENTER_HUNGER
+	var selector := ActorGoalSelectorScript.new()
+	var initial_goal := selector.choose_goal(actor)
+	var search_goal := selector.choose_search_goal(actor)
+	var enemy := arena.add_actor(FakeActor.new())
+	enemy.team = 1
+	enemy.global_position = Vector2(100.0, 0.0)
+	arena.set_entity_visible(enemy, true)
+	actor.satiated = true
+	var threatened_goal := selector.choose_goal(actor)
+	var actor_id := actor.get_instance_id()
+	var state_cleared := not selector.forage_commitments.has(actor_id) \
+		and not selector.forage_search_indices.has(actor_id)
+	arena.set_entity_visible(enemy, false)
+	actor.satiated = false
+	actor.hunger = ActorGoalSelectorScript.CRITTER_ONLY_FORAGE_ENTER_HUNGER + 0.01
+	var after_goal := selector.choose_goal(actor)
+	var after_search := selector.choose_search_goal(actor)
+	var ok := initial_goal.is_empty() \
+		and String(search_goal.get("mode", "")) == ActorGoalSelectorScript.GOAL_FORAGE_SEARCH \
+		and threatened_goal.is_empty() \
+		and state_cleared \
+		and after_goal.is_empty() \
+		and after_search.is_empty()
+	if not ok:
+		failures.append(
+			"threatened_satiation expected danger to suppress deposit while satiation clears forage/search state; search=%s threatened=%s cleared=%s after=%s after_search=%s"
+			% [str(search_goal), str(threatened_goal), str(state_cleared), str(after_goal), str(after_search)]
+		)
 	arena.free()
 	return ok
 

@@ -544,7 +544,7 @@ func _critter_entry(x: float, y: float) -> Dictionary:
 		"kind": "critter",
 		"side": "blue",
 		"position": _point_units(x, y),
-		"food_value": 18.0,
+		"food_value": 24.0,
 		"heal_fraction": 0.06
 	}
 

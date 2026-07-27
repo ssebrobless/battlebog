@@ -2,6 +2,7 @@ extends SceneTree
 
 const BotBrainScript := preload("res://scripts/ai/bot_brain.gd")
 const InputFrameScript := preload("res://scripts/sim/input_frame.gd")
+const TeamDirectorScript := preload("res://scripts/ai/team_director.gd")
 
 class FakeEntity extends Node2D:
 	var team := 0
@@ -13,12 +14,41 @@ class FakeEntity extends Node2D:
 	var e_timer := 10.0
 	var primary_timer := 0.0
 	var arena: Node = null
+	var hunger := 100.0
+	var satiated := false
+	var allowed_food_kinds: Array[String] = ["plant", "critter"]
+	var scored_actor := true
 
 	func is_alive() -> bool:
 		return health > 0.0
 
 	func is_stealthed() -> bool:
 		return false
+
+	func is_satiated() -> bool:
+		return satiated
+
+	func can_eat_food_kind(food_kind: String) -> bool:
+		return food_kind in allowed_food_kinds
+
+	func is_scored_actor() -> bool:
+		return scored_actor
+
+
+class FakeSlotRegistry extends RefCounted:
+	var slots := {}
+
+	func register_actor(actor: Node, slot_id: String, slot_index: int) -> void:
+		slots[actor.get_instance_id()] = {
+			"slot_id": slot_id,
+			"slot_index": slot_index
+		}
+
+	func get_slot_for_actor(actor: Object) -> Dictionary:
+		if actor == null or not is_instance_valid(actor):
+			return {}
+		return slots.get(actor.get_instance_id(), {})
+
 
 class FakeCore extends Node2D:
 	var team := 1
@@ -41,6 +71,9 @@ class FakeArena extends Node2D:
 	var huts: Array[Node] = []
 	var cores := {}
 	var core_open := false
+	var food_sources: Array[Node] = []
+	var slot_registry: RefCounted = FakeSlotRegistry.new()
+	var team_director_epoch := 1
 	var spawns := {
 		0: Vector2(-500.0, 0.0),
 		1: Vector2(500.0, 0.0)
@@ -59,6 +92,7 @@ class FakeArena extends Node2D:
 		hut.health = health
 		hut.max_health = 800.0
 		hut.body_radius = 30.0
+		hut.scored_actor = false
 		add_entity(hut)
 		huts.append(hut)
 		return hut
@@ -108,6 +142,24 @@ class FakeArena extends Node2D:
 	func get_team_spawn(team: int) -> Vector2:
 		return spawns.get(team, Vector2.ZERO)
 
+	func get_team_habitat_rect(team: int) -> Rect2:
+		return Rect2(get_team_spawn(team) - Vector2(40.0, 40.0), Vector2(80.0, 80.0))
+
+	func get_animal_zone_state(side := "") -> Array[Dictionary]:
+		var team_side := "blue"
+		var zones: Array[Dictionary] = [
+			{"id": "%s:A" % team_side, "side": team_side, "center": Vector2(180.0, 0.0), "boss": false},
+			{"id": "%s:B" % team_side, "side": team_side, "center": Vector2(280.0, 0.0), "boss": false}
+		]
+		var out: Array[Dictionary] = []
+		for zone: Dictionary in zones:
+			if String(side).is_empty() or String(zone.get("side", "")) == String(side):
+				out.append(zone)
+		return out
+
+	func is_entity_visible_to_team(_entity: Node, _team: int) -> bool:
+		return true
+
 func _initialize() -> void:
 	var failures: Array[String] = []
 	var retreat_ok := _check_low_health_retreat(failures)
@@ -118,8 +170,10 @@ func _initialize() -> void:
 	var retreat_stability_ok := _check_low_health_retreat_hysteresis(failures)
 	var target_cache_ok := _check_target_query_cache(failures)
 	var freed_cache_ok := _check_freed_target_public_cache_refresh(failures)
-	var passed := retreat_ok and defend_ok and hut_push_ok and core_push_ok and objective_score_ok and retreat_stability_ok and target_cache_ok and freed_cache_ok
-	print("bot_brain retreat=%s defend=%s hut_push=%s core_push=%s objective_score=%s retreat_stability=%s target_cache=%s freed_cache=%s" % [
+	var search_order_ok := _check_search_order_arbitration(failures)
+	var visible_combat_ok := _check_visible_combat_preempts_cached_search(failures)
+	var passed := retreat_ok and defend_ok and hut_push_ok and core_push_ok and objective_score_ok and retreat_stability_ok and target_cache_ok and freed_cache_ok and search_order_ok and visible_combat_ok
+	print("bot_brain retreat=%s defend=%s hut_push=%s core_push=%s objective_score=%s retreat_stability=%s target_cache=%s freed_cache=%s search_order=%s visible_combat=%s" % [
 		str(retreat_ok),
 		str(defend_ok),
 		str(hut_push_ok),
@@ -127,7 +181,9 @@ func _initialize() -> void:
 		str(objective_score_ok),
 		str(retreat_stability_ok),
 		str(target_cache_ok),
-		str(freed_cache_ok)
+		str(freed_cache_ok),
+		str(search_order_ok),
+		str(visible_combat_ok)
 	])
 	for failure in failures:
 		push_error(failure)
@@ -284,3 +340,81 @@ func _check_freed_target_public_cache_refresh(failures: Array[String]) -> bool:
 	if not ok:
 		failures.append("freed_cache expected build_frame and get_goal_snapshot to replace a freed cached target")
 	return ok
+
+
+func _check_search_order_arbitration(failures: Array[String]) -> bool:
+	var arena := FakeArena.new()
+	get_root().add_child(arena)
+	var bot: FakeEntity = arena.add_creature(0, Vector2(180.0, 0.0))
+	bot.allowed_food_kinds = ["critter"]
+	bot.hunger = 88.0
+	arena.slot_registry.register_actor(bot, "blue:0", 0)
+	var pressure_order := _director_order("pressure_lane", Vector2(-400.0, 0.0))
+	var defend_order := _director_order("defend", Vector2(-400.0, 0.0))
+	var brain := BotBrainScript.new()
+	var defend_frame := brain.build_frame(bot, true, defend_order)
+	var route_held: bool = int(brain.goal_selector.forage_search_indices.get(bot.get_instance_id(), -1)) == 0
+	var pressure_frame := brain.build_frame(bot, true, pressure_order)
+	var pressure_yields: bool = pressure_frame.move.dot(Vector2.RIGHT) > 0.9 \
+		and pressure_frame.aim.distance_to(Vector2(280.0, 0.0)) < 0.001 \
+		and int(brain.goal_selector.forage_search_indices.get(bot.get_instance_id(), -1)) == 1
+	var defend_wins: bool = defend_frame.move.dot(Vector2.LEFT) > 0.9 \
+		and defend_frame.aim.distance_to(Vector2(-400.0, 0.0)) < 0.001
+	var ok: bool = route_held and pressure_yields and defend_wins
+	if not ok:
+		failures.append(
+			"search_order expected defend to hold the arrived route, then pressure_lane to yield and advance it exactly once; held=%s pressure_move=%s pressure_aim=%s defend_move=%s defend_aim=%s"
+			% [
+				str(route_held),
+				str(pressure_frame.move),
+				str(pressure_frame.aim),
+				str(defend_frame.move),
+				str(defend_frame.aim)
+			]
+		)
+	arena.free()
+	return ok
+
+
+func _check_visible_combat_preempts_cached_search(failures: Array[String]) -> bool:
+	var arena := FakeArena.new()
+	get_root().add_child(arena)
+	var bot := arena.add_creature(0, Vector2.ZERO)
+	var critter_diet: Array[String] = ["critter"]
+	bot.allowed_food_kinds = critter_diet
+	bot.hunger = 100.0
+	var brain := BotBrainScript.new()
+	var search_frame := brain.build_frame(bot)
+	var enemy := arena.add_creature(1, Vector2(300.0, 0.0))
+	var combat_frame := brain.build_frame(bot)
+	var search_started: bool = search_frame.move.length() > 0.9
+	var combat_selected: bool = combat_frame.aim.distance_to(enemy.global_position) < 0.001 \
+		and combat_frame.move.dot(Vector2.RIGHT) > 0.9
+	var ok: bool = search_started and combat_selected
+	if not ok:
+		failures.append(
+			"visible_combat expected a scored target beyond the 260 threat radius to invalidate cached forage search; search_move=%s combat_move=%s combat_aim=%s target=%s"
+			% [
+				str(search_frame.move),
+				str(combat_frame.move),
+				str(combat_frame.aim),
+				str(enemy.global_position)
+			]
+		)
+	arena.free()
+	return ok
+
+
+func _director_order(role: String, destination: Vector2) -> Dictionary:
+	return {
+		"schema": TeamDirectorScript.SCHEMA,
+		"team": 0,
+		"slot_id": "blue:0",
+		"epoch": 1,
+		"issued_epoch": 1,
+		"lease_until_epoch": 2,
+		"source": "director",
+		"role": role,
+		"destination": destination,
+		"hold_radius": 24.0
+	}

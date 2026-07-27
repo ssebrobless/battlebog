@@ -140,6 +140,8 @@ func _check_bot_hook(arena: Node, failures: Array[String]) -> void:
 	actor.e_charges = 3
 	var target: Node = arena.player
 	target.global_position = actor.global_position + Vector2.RIGHT * 220.0
+	arena.reveal_entity_to_team(target, actor.team, 1.0)
+	arena.bot_brain.reset_actor(actor)
 	var frame: Resource = arena.bot_brain.build_frame(actor)
 	if not frame.is_pressed(InputFrameScript.BUTTON_ABILITY_Q):
 		failures.append("bullfrog bot should leap toward distant targets")
