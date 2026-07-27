@@ -45,8 +45,8 @@ The current `1v1` string is a temporary compatibility name for Play vs AI.
 - A deterministic team director assigns bounded follow, aggro, defend, contest,
   claim, boss-fight, and lane-pressure roles without replacing creature-specific
   combat hooks or exposing hidden enemy state.
-- Deposits use assisted-manual policy initially: an inactive ally may forage and
-  return ready, but the player swaps to that creature to authorize the deposit.
+- Inactive allies may return, deposit, and breed autonomously. The currently
+  controlled creature still requires explicit player deposit input.
 
 ## Legacy 3v3 Entry
 

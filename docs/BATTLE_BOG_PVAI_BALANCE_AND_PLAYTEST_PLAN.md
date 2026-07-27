@@ -154,7 +154,8 @@ Exercise and retain evidence for:
 - switching while moving, attacking, injured, hungry, on cooldown, dead, and
   exhausted;
 - inactive allies foraging, fighting, retreating, defending, and returning;
-- assisted-manual Blue deposits and autonomous Red deposits;
+- autonomous deposits and breeding by inactive Blue allies and Red bots, while
+  the currently controlled creature requires explicit player deposit input;
 - breeding completion, side-boss wake, fight, claim, contest, and steal;
 - death, respawn, slot exhaustion, team exhaustion, immutable results, rematch,
   and menu return;
