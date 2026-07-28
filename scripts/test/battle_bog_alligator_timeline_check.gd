@@ -175,7 +175,7 @@ func _check_presentation_startup_truth(
 				"startup presentation truth failed; initial=%s stationary=%s "
 				+ "defensive=%s follow=%s signature=%s telegraph=%s stale=%s "
 				+ "draw_rejected=%s removed=%s "
-				+ "accepted=%s followed=%s"
+				+ "accepted=%s followed=%s position=%s velocity=%s displacement=%s"
 			)
 			% [
 				str(exact_initial),
@@ -189,6 +189,9 @@ func _check_presentation_startup_truth(
 				str(removed_after_interrupt),
 				str(accepted),
 				str(followed),
+				str(actor.global_position),
+				str(actor.velocity),
+				str(actor.last_move_displacement_px),
 			]
 		)
 
@@ -233,7 +236,7 @@ func _check_presentation_contact_and_completion(
 		and (contact_after as Vector2).is_equal_approx(expected_point as Vector2) \
 		and String(active["attack_phase_name"]) == "active" \
 		and (active_shape["origin"] as Vector2).is_equal_approx(
-			actor.global_position
+			startup_shape["origin"] as Vector2
 		) \
 		and (active_shape["aim"] as Vector2).dot(Vector2.RIGHT) > 0.99 \
 		and startup_signature != active_signature
@@ -281,7 +284,7 @@ func _check_presentation_contact_and_completion(
 			(
 				"active presentation truth failed; contact=%s swing=%s "
 				+ "recovery=%s signature=%s cleared=%s startup=%s active=%s "
-				+ "completed=%s"
+				+ "completed=%s expected_point=%s contact_after=%s"
 			)
 			% [
 				str(contact_truth),
@@ -292,6 +295,8 @@ func _check_presentation_contact_and_completion(
 				str(startup),
 				str(active),
 				str(completed),
+				str(expected_point),
+				str(contact_after),
 			]
 		)
 
@@ -635,10 +640,11 @@ func _check_ambush_blocked_while_primary_committed(
 		and actor.is_stealthed()
 	if not active_blocked or not recovery_started or not recovery_blocked \
 		or not allowed_after_recovery:
-		failures.append(
+		failures.append((
 			"Ambush must stay blocked through active/whiff recovery and become available after "
 			+ "the primary commitment ends; active=%s recovery_start=%s recovery=%s after=%s "
 			+ "snapshot=%s e=%.3f"
+			)
 			% [
 				str(active_blocked),
 				str(recovery_started),

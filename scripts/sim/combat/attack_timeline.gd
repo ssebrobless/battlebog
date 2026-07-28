@@ -107,6 +107,8 @@ func advance(
 		or simulation_tick < 0 \
 		or not _is_positive_finite(delta):
 		return events
+	if time_to_phase_boundary() == 0.0:
+		return events
 
 	var advancing_sequence := _attack_sequence_id
 	var remaining := delta
@@ -114,7 +116,7 @@ func advance(
 		and not is_idle() \
 		and _attack_sequence_id == advancing_sequence:
 		var until_boundary := maxf(0.0, _phase_duration - _phase_elapsed)
-		if remaining < until_boundary:
+		if remaining <= until_boundary:
 			_phase_elapsed += remaining
 			remaining = 0.0
 			break
@@ -122,6 +124,25 @@ func advance(
 		_phase_elapsed = _phase_duration
 		remaining = maxf(0.0, remaining - until_boundary)
 		_complete_phase(simulation_tick, active_resolver, events)
+	return events
+
+
+func time_to_phase_boundary() -> float:
+	if is_idle():
+		return INF
+	return maxf(_phase_duration - _phase_elapsed, 0.0)
+
+
+func advance_pending_boundary(
+	simulation_tick: int,
+	active_resolver: Callable
+) -> Array[Dictionary]:
+	var events: Array[Dictionary] = []
+	if is_idle() \
+		or simulation_tick < 0 \
+		or time_to_phase_boundary() != 0.0:
+		return events
+	_complete_phase(simulation_tick, active_resolver, events)
 	return events
 
 

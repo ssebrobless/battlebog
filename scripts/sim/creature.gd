@@ -159,6 +159,7 @@ var latch_timer := 0.0
 var latch_source := ""
 var latch_sequence_id := 0
 var latch_execute_timer := 0.0
+var latch_created_simulation_tick := -1
 var latch_move_multiplier := 1.0
 var last_aim_direction := Vector2.RIGHT
 var body_heading := Vector2.RIGHT
@@ -220,6 +221,7 @@ func setup(creature_arena: Node, creature_team: int, spawn_position: Vector2, ne
 
 func apply_creature(next_creature_id: String) -> void:
 	_reset_primary_attack_timeline()
+	break_latch("species_replacement")
 	creature_id = next_creature_id
 	creature_data = _catalog().get_creature(creature_id)
 	stats = creature_data.get("stats", {})
@@ -256,7 +258,11 @@ func apply_creature(next_creature_id: String) -> void:
 	latch_source = ""
 	latch_sequence_id = 0
 	latch_execute_timer = 0.0
+	latch_created_simulation_tick = -1
+	velocity = Vector2.ZERO
 	steering_velocity = Vector2.ZERO
+	dash_velocity = Vector2.ZERO
+	dash_timer = 0.0
 	residual_velocity = Vector2.ZERO
 	render_landing_timer = 0.0
 	render_landing_impact = 0.0
@@ -347,7 +353,9 @@ func tick_sim(delta: float) -> void:
 	_update_terrain(delta)
 	if not alive or _match_is_over():
 		return
-	_move_from_input(delta)
+	if not _integrate_attack_movement_and_timeline(delta):
+		action_policy_suppressed_buttons = 0
+		return
 	_update_body_heading(delta)
 	_tick_hunger(delta)
 	if not alive or _match_is_over():
@@ -357,8 +365,6 @@ func tick_sim(delta: float) -> void:
 	_tick_latch(delta)
 	if _match_is_over():
 		return
-	_refresh_primary_attack_presentation()
-	_advance_primary_attack_timeline(delta)
 	if not alive or _match_is_over():
 		return
 	if kit != null and kit.has_method("tick"):
@@ -375,6 +381,12 @@ func _match_is_over() -> bool:
 func on_match_ended() -> void:
 	if kit != null and kit.has_method("tick_match_end"):
 		kit.tick_match_end(self, 0.0)
+	_reset_primary_attack_timeline()
+	velocity = Vector2.ZERO
+	steering_velocity = Vector2.ZERO
+	dash_velocity = Vector2.ZERO
+	dash_timer = 0.0
+	residual_velocity = Vector2.ZERO
 	action_policy_suppressed_buttons = 0
 
 func take_damage(amount: float, _source_team: int = -1, _source_actor: Node = null) -> void:
@@ -750,6 +762,10 @@ func take_damage_event(event: Resource) -> void:
 		alive = false
 		visible = false
 		velocity = Vector2.ZERO
+		steering_velocity = Vector2.ZERO
+		dash_velocity = Vector2.ZERO
+		dash_timer = 0.0
+		residual_velocity = Vector2.ZERO
 		respawn_timer = respawn_duration
 		if arena != null and arena.has_method("unregister_entity"):
 			arena.unregister_entity(self)
@@ -1299,6 +1315,13 @@ func get_flight_ratio() -> float:
 func _move_from_input(delta: float) -> void:
 	var start_position := global_position
 	last_move_displacement_px = 0.0
+	_move_from_input_slice(
+		delta,
+		primary_attack_timeline.movement_multiplier()
+	)
+	last_move_displacement_px = global_position.distance_to(start_position)
+
+func _move_from_input_slice(delta: float, attack_movement_multiplier: float) -> void:
 	if state == CreatureStateScript.State.BURROWED:
 		velocity = Vector2.ZERO
 		steering_velocity = Vector2.ZERO
@@ -1320,7 +1343,7 @@ func _move_from_input(delta: float) -> void:
 	var speed_multiplier: float = (
 		latch_move_multiplier
 		* _modifier_value("move_speed_mult", 1.0)
-		* primary_attack_timeline.movement_multiplier()
+		* attack_movement_multiplier
 	)
 	if dash_timer > 0.0:
 		velocity = dash_velocity
@@ -1330,17 +1353,125 @@ func _move_from_input(delta: float) -> void:
 			steering_velocity = velocity
 		steering_velocity = MovementFeelScript.profiled_velocity(steering_velocity, move, get_speed_px() * speed_multiplier, delta, _active_movement_profile(), last_aim_direction)
 		velocity = steering_velocity + residual_velocity
-	if Engine.is_in_physics_frame():
-		move_and_slide()
-	else:
-		global_position += velocity * delta
+	global_position += velocity * delta
 	if arena != null:
 		if is_airborne():
 			# Airborne creatures pass over obstacles; only the arena bounds apply.
 			global_position = arena.clamp_to_arena(global_position)
 		elif pass_obstacles_timer <= 0.0 and arena.has_method("resolve_body_position"):
 			global_position = arena.resolve_body_position(global_position, body_radius)
-	last_move_displacement_px = global_position.distance_to(start_position)
+
+func _integrate_attack_movement_and_timeline(delta: float) -> bool:
+	var tick_start_position := global_position
+	last_move_displacement_px = 0.0
+	if not is_finite(delta) or delta <= 0.0:
+		return true
+
+	var simulation_tick := _primary_attack_simulation_tick()
+	var initial_creature_id := creature_id
+	var initial_snapshot: Dictionary = primary_attack_timeline.snapshot()
+	if primary_attack_timeline.is_idle() \
+		or simulation_tick < 0 \
+		or simulation_tick <= int(initial_snapshot["attack_started_tick"]):
+		_move_from_input_slice(
+			delta,
+			primary_attack_timeline.movement_multiplier()
+		)
+		last_move_displacement_px = global_position.distance_to(
+			tick_start_position
+		)
+		return true
+
+	var remaining := delta
+	var completed_boundaries := 0
+	var timeline_touched := false
+	var integration_valid := true
+	while remaining > 0.0 \
+		or (
+			not primary_attack_timeline.is_idle()
+			and primary_attack_timeline.time_to_phase_boundary() == 0.0
+		):
+		if not alive \
+			or _match_is_over() \
+			or creature_id != initial_creature_id \
+			or is_queued_for_deletion():
+			integration_valid = false
+			break
+		if primary_attack_timeline.is_idle():
+			_move_from_input_slice(remaining, 1.0)
+			remaining = 0.0
+			break
+
+		var before: Dictionary = primary_attack_timeline.snapshot()
+		var sequence_id := int(before["attack_sequence_id"])
+		var phase_before: StringName = (
+			primary_attack_timeline.current_phase_name()
+		)
+		var boundary: float = primary_attack_timeline.time_to_phase_boundary()
+		if boundary == 0.0:
+			if completed_boundaries >= 8:
+				push_error(
+					"Attack movement crossed more than eight phase boundaries."
+				)
+				integration_valid = false
+				break
+			if phase_before == &"startup":
+				_refresh_primary_attack_presentation()
+			var events: Array = primary_attack_timeline.advance_pending_boundary(
+				simulation_tick,
+				_primary_attack_resolver
+			)
+			completed_boundaries += 1
+			timeline_touched = true
+			var normal_completion := false
+			for event: Dictionary in events:
+				if String(event.get("event", "")) == "completed":
+					normal_completion = true
+
+			if not alive \
+				or _match_is_over() \
+				or creature_id != initial_creature_id \
+				or is_queued_for_deletion():
+				integration_valid = false
+				break
+			var after: Dictionary = primary_attack_timeline.snapshot()
+			if primary_attack_timeline.is_idle():
+				if not normal_completion \
+					or int(after["attack_sequence_id"]) != sequence_id:
+					integration_valid = false
+					break
+				_reset_primary_attack_timeline()
+				continue
+			if int(after["attack_sequence_id"]) != sequence_id:
+				integration_valid = false
+				break
+			continue
+
+		var slice := minf(remaining, boundary)
+		if slice == boundary and completed_boundaries >= 8:
+			push_error(
+				"Attack movement crossed more than eight phase boundaries."
+			)
+			integration_valid = false
+			break
+		_move_from_input_slice(
+			slice,
+			primary_attack_timeline.movement_multiplier()
+		)
+		if phase_before == &"startup":
+			_refresh_primary_attack_presentation()
+		remaining = maxf(remaining - slice, 0.0)
+		primary_attack_timeline.advance(
+			slice,
+			simulation_tick,
+			_primary_attack_resolver
+		)
+		timeline_touched = true
+
+	if timeline_touched:
+		_request_render_redraw()
+	last_move_displacement_px = global_position.distance_to(tick_start_position)
+	return integration_valid
 
 func _update_terrain(delta: float) -> void:
 	var zone := get_current_zone()
@@ -1759,6 +1890,7 @@ func attach_to_victim(victim: Node, duration: float, source_ability: String, exe
 	latch_timer = duration
 	latch_source = source_ability
 	latch_execute_timer = execute_after
+	latch_created_simulation_tick = _primary_attack_simulation_tick()
 	state = CreatureStateScript.State.LATCHED
 	emit_vfx_event("latch_started", {
 		"attacker": self,
@@ -1772,6 +1904,7 @@ func receive_latch(attacker: Node, duration: float, source_ability: String) -> v
 	latched_attacker = attacker
 	latch_timer = duration
 	latch_source = source_ability
+	latch_created_simulation_tick = _primary_attack_simulation_tick()
 	# Decision #33: the latched pair moves at 45% of the victim's base speed.
 	latch_move_multiplier = 0.45
 
@@ -1799,6 +1932,7 @@ func release_latch(_reason: String) -> void:
 	latch_timer = 0.0
 	latch_source = ""
 	latch_execute_timer = 0.0
+	latch_created_simulation_tick = -1
 	latch_move_multiplier = 1.0
 	if not is_airborne():
 		state = CreatureStateScript.State.NORMAL
@@ -1876,6 +2010,7 @@ func _respawn() -> void:
 	dash_velocity = Vector2.ZERO
 	dash_timer = 0.0
 	residual_velocity = Vector2.ZERO
+	latch_created_simulation_tick = -1
 	render_landing_timer = 0.0
 	render_landing_impact = 0.0
 	render_last_hop_airborne = false
@@ -2055,10 +2190,13 @@ func _tick_latch(delta: float) -> void:
 		var victim_velocity: Vector2 = latch_victim.velocity
 		if victim_velocity.length() > 8.0 and victim_velocity.normalized().dot(drag_direction) < -0.3:
 			grip_drain = delta * 1.5
-		if latch_source != "Death Roll":
-			latch_timer = maxf(latch_timer - grip_drain, 0.0)
-		latch_victim.latch_timer = latch_timer
-		latch_execute_timer = maxf(latch_execute_timer - delta, 0.0)
+		var created_this_tick := latch_created_simulation_tick >= 0 \
+			and latch_created_simulation_tick == _primary_attack_simulation_tick()
+		if not created_this_tick:
+			if latch_source != "Death Roll":
+				latch_timer = maxf(latch_timer - grip_drain, 0.0)
+			latch_victim.latch_timer = latch_timer
+			latch_execute_timer = maxf(latch_execute_timer - delta, 0.0)
 		if max_health > latch_victim.max_health:
 			latch_victim.global_position += drag_direction * get_speed_px() * 0.18 * delta
 		global_position = latch_victim.global_position + drag_direction * (body_radius + latch_victim.body_radius * 0.5)

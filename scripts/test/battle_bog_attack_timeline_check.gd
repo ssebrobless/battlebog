@@ -56,6 +56,7 @@ class SignalSource:
 func _initialize() -> void:
 	var failures: Array[String] = []
 	_check_boundaries_and_progress(failures)
+	_check_pending_boundary_api(failures)
 	_check_current_phase_name(failures)
 	_check_overshoot_and_single_resolution(failures)
 	_check_outcomes(failures)
@@ -89,7 +90,7 @@ func _check_boundaries_and_progress(failures: Array[String]) -> void:
 	if probe.calls != 0:
 		failures.append("resolver must not run before the startup boundary")
 
-	timeline.advance(0.10, 14, probe.resolve)
+	_advance_and_commit(timeline, 0.10, 14, probe.resolve)
 	_expect_state(timeline, AttackTimeline.Phase.ACTIVE, 0.0, "exact startup boundary", failures)
 	var active: Dictionary = timeline.snapshot()
 	if probe.calls != 1 or int(active.attack_active_tick) != 14:
@@ -100,11 +101,41 @@ func _check_boundaries_and_progress(failures: Array[String]) -> void:
 
 	timeline.advance(0.05, 15, probe.resolve)
 	_expect_state(timeline, AttackTimeline.Phase.ACTIVE, 0.5, "active midpoint", failures)
-	timeline.advance(0.05, 16, probe.resolve)
+	_advance_and_commit(timeline, 0.05, 16, probe.resolve)
 	_expect_state(timeline, AttackTimeline.Phase.RECOVERY, 0.0, "exact active boundary", failures)
-	timeline.advance(0.40, 17, probe.resolve)
+	_advance_and_commit(timeline, 0.40, 17, probe.resolve)
 	if not timeline.is_idle() or probe.calls != 1:
 		failures.append("exact recovery boundary should return idle without a second resolution")
+
+
+func _check_pending_boundary_api(failures: Array[String]) -> void:
+	var timeline: RefCounted = AttackTimeline.new()
+	var probe := ResolverProbe.new({"outcome": "hit", "hit_count": 1})
+	if not is_inf(timeline.time_to_phase_boundary()):
+		failures.append("idle time_to_phase_boundary must return INF")
+	timeline.start(_config(), {}, Vector2.RIGHT, 10, 1.0)
+	var before: Dictionary = timeline.snapshot()
+	if absf(timeline.time_to_phase_boundary() - 0.20) > EPSILON \
+		or timeline.snapshot() != before:
+		failures.append("time_to_phase_boundary must be exact and non-mutating")
+	if not timeline.advance_pending_boundary(11, probe.resolve).is_empty() \
+		or probe.calls != 0:
+		failures.append("a non-pending boundary call must be a no-op")
+	timeline.advance(0.20, 12, probe.resolve)
+	if timeline.current_phase_name() != &"startup" \
+		or timeline.time_to_phase_boundary() != 0.0 \
+		or probe.calls != 0:
+		failures.append("exact elapsed startup must remain pending")
+	var events: Array = timeline.advance_pending_boundary(13, probe.resolve)
+	if events.size() != 1 \
+		or String((events[0] as Dictionary).get("event", "")) != "active_started" \
+		or timeline.current_phase_name() != &"active" \
+		or int(timeline.snapshot().attack_active_tick) != 13 \
+		or probe.calls != 1:
+		failures.append("pending startup must commit one exact active boundary")
+	if not timeline.advance_pending_boundary(14, probe.resolve).is_empty() \
+		or probe.calls != 1:
+		failures.append("a repeated non-pending call must not resolve twice")
 
 
 func _check_current_phase_name(failures: Array[String]) -> void:
@@ -117,15 +148,15 @@ func _check_current_phase_name(failures: Array[String]) -> void:
 	if timeline.current_phase_name() != &"startup":
 		failures.append("current_phase_name should report startup after start")
 
-	timeline.advance(0.20, 21, probe.resolve)
+	_advance_and_commit(timeline, 0.20, 21, probe.resolve)
 	if timeline.current_phase_name() != &"active":
 		failures.append("current_phase_name should report active at the startup boundary")
 
-	timeline.advance(0.10, 22, probe.resolve)
+	_advance_and_commit(timeline, 0.10, 22, probe.resolve)
 	if timeline.current_phase_name() != &"recovery":
 		failures.append("current_phase_name should report recovery at the active boundary")
 
-	timeline.advance(0.40, 23, probe.resolve)
+	_advance_and_commit(timeline, 0.40, 23, probe.resolve)
 	if timeline.current_phase_name() != &"idle":
 		failures.append("current_phase_name should return to idle after recovery")
 
@@ -194,7 +225,7 @@ func _check_outcomes(failures: Array[String]) -> void:
 		timeline.advance(float(case.duration) - 0.02, 2, probe.resolve)
 		if timeline.is_idle():
 			failures.append("%s recovery should remain active before its boundary" % String(case.label))
-		timeline.advance(0.02, 3, probe.resolve)
+		_advance_and_commit(timeline, 0.02, 3, probe.resolve)
 		if not timeline.is_idle() or probe.calls != 1:
 			failures.append("%s recovery should complete exactly once" % String(case.label))
 
@@ -217,14 +248,14 @@ func _check_interruptions(failures: Array[String]) -> void:
 			str(soft_state),
 			soft_probe.calls
 		])
-	soft.advance(0.50, 23, soft_probe.resolve)
+	_advance_and_commit(soft, 0.50, 23, soft_probe.resolve)
 	if not soft.is_idle():
 		failures.append("soft interruption should use interrupted recovery duration")
 
 	var active: RefCounted = AttackTimeline.new()
 	var active_probe := ResolverProbe.new({"outcome": "hit"})
 	active.start(_config(), {}, Vector2.RIGHT, 30, 1.0)
-	active.advance(0.20, 31, active_probe.resolve)
+	_advance_and_commit(active, 0.20, 31, active_probe.resolve)
 	var ignored: Dictionary = active.interrupt("late_stun", 32)
 	if bool(ignored.changed) \
 		or int(active.snapshot().attack_phase) != AttackTimeline.Phase.ACTIVE \
@@ -270,7 +301,7 @@ func _check_reset_and_defensive_copies(failures: Array[String]) -> void:
 		failures.append("start and snapshot should deep-copy config/payload and normalize heading; state=%s" % str(second))
 
 	var probe := ResolverProbe.new({"outcome": "hit"})
-	timeline.advance(0.10, 71, probe.resolve)
+	_advance_and_commit(timeline, 0.10, 71, probe.resolve)
 	if int(timeline.snapshot().attack_phase) != AttackTimeline.Phase.ACTIVE:
 		failures.append("time_scale=2 should halve the startup duration")
 	timeline.reset()
@@ -295,17 +326,17 @@ func _check_phase_policies(failures: Array[String]) -> void:
 		or not timeline.has_phase_tag("warning") \
 		or timeline.has_phase_tag("contact"):
 		failures.append("startup should expose its movement, block, and tag policy")
-	timeline.advance(0.20, 1, probe.resolve)
+	_advance_and_commit(timeline, 0.20, 1, probe.resolve)
 	if absf(timeline.movement_multiplier() - 0.20) > EPSILON \
 		or not timeline.blocks_abilities() \
 		or not timeline.has_phase_tag("contact"):
 		failures.append("active should expose its movement, block, and tag policy")
-	timeline.advance(0.10, 2, probe.resolve)
+	_advance_and_commit(timeline, 0.10, 2, probe.resolve)
 	if absf(timeline.movement_multiplier() - 0.35) > EPSILON \
 		or timeline.blocks_abilities() \
 		or not timeline.has_phase_tag("punishable"):
 		failures.append("recovery should expose its movement, block, and tag policy")
-	timeline.advance(0.40, 3, probe.resolve)
+	_advance_and_commit(timeline, 0.40, 3, probe.resolve)
 	if absf(timeline.movement_multiplier() - 1.0) > EPSILON \
 		or timeline.blocks_abilities() \
 		or timeline.has_phase_tag("punishable"):
@@ -330,7 +361,7 @@ func _check_authoritative_ticks_and_chunking(failures: Array[String]) -> void:
 	if int(near_boundary.snapshot().attack_phase) != AttackTimeline.Phase.STARTUP \
 		or near_probe.calls != 0:
 		failures.append("a delta short of the boundary must not create time or enter active")
-	near_boundary.advance(0.0000005, 177, near_probe.resolve)
+	_advance_and_commit(near_boundary, 0.0000005, 177, near_probe.resolve)
 	if int(near_boundary.snapshot().attack_phase) != AttackTimeline.Phase.ACTIVE \
 		or int(near_boundary.snapshot().attack_active_tick) != 177 \
 		or near_probe.calls != 1:
@@ -571,7 +602,7 @@ func _check_value_only_boundaries(failures: Array[String]) -> void:
 	if not timeline.start(_config(), {"attack": "safe"}, Vector2.RIGHT, 600, 1.0):
 		failures.append("valid start should still work after unsafe payload rejection")
 		return
-	timeline.advance(0.20, 601, unsafe_probe.resolve)
+	_advance_and_commit(timeline, 0.20, 601, unsafe_probe.resolve)
 	var resolved: Dictionary = timeline.snapshot()
 	if int(resolved.attack_outcome) != AttackTimeline.Outcome.HIT \
 		or int(resolved.hit_count) != 1 \
@@ -590,6 +621,20 @@ func _deterministic_trace() -> Array[Dictionary]:
 		trace.append(timeline.snapshot())
 	trace.append({"resolver_calls": probe.calls})
 	return trace
+
+
+func _advance_and_commit(
+	timeline: RefCounted,
+	delta: float,
+	simulation_tick: int,
+	resolver: Callable
+) -> Array:
+	var events: Array = timeline.advance(delta, simulation_tick, resolver)
+	if timeline.time_to_phase_boundary() == 0.0:
+		events.append_array(
+			timeline.advance_pending_boundary(simulation_tick, resolver)
+		)
+	return events
 
 
 func _expect_state(
