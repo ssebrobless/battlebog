@@ -448,10 +448,13 @@ func _fixture(creature_id: String) -> Dictionary:
 
 func _enable_timeline(actor: Node, config: Dictionary = TIMELINE_CONFIG) -> void:
 	var data: Dictionary = actor.creature_data.duplicate(true)
-	data["primary_attack_timelines"] = {
+	var next_stats: Dictionary = data.get("stats", {}).duplicate(true)
+	next_stats["action_timelines"] = {
 		VARIANT: config.duplicate(true),
 	}
+	data["stats"] = next_stats
 	actor.creature_data = data
+	actor.stats = next_stats
 	actor.primary_timer = 0.0
 
 

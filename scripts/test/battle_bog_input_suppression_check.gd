@@ -121,12 +121,15 @@ func _check_creature_copy_through(arena: Node, failures: Array[String]) -> void:
 	frame.aim = Vector2.LEFT
 	frame.buttons = ACTION_BUTTONS
 	frame.suppress_buttons(InputFrameScript.BUTTON_PRIMARY)
-	var filtered: Resource = actor._without_ability_buttons(frame)
+	var filtered: Resource = actor._without_action_buttons(
+		frame,
+		InputFrameScript.BUTTON_ABILITY_Q | InputFrameScript.BUTTON_ABILITY_E
+	)
 	if filtered == frame \
 			or filtered.move != frame.move \
 			or filtered.aim != frame.aim \
 			or int(filtered.buttons) != InputFrameScript.BUTTON_PRIMARY \
-			or int(filtered.suppressed_buttons) != InputFrameScript.BUTTON_PRIMARY \
+			or int(filtered.suppressed_buttons) != ACTION_BUTTONS \
 			or filtered.is_intentional_release(InputFrameScript.BUTTON_PRIMARY):
 		failures.append(
 			"Creature ability filtering should preserve movement, aim, primary, and provenance"

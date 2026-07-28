@@ -11,11 +11,14 @@ const HIT_START_FRAME := 6
 const WHIFF_START_FRAME := 60
 const INTERRUPT_START_FRAME := 138
 const INTERRUPT_FRAME := 147
+const COUNTER_FLASH_FIRST_FRAME := 24
+const COUNTER_FLASH_FINAL_FRAME := 30
+const COUNTER_FLASH_COLOR := Color(1.0, 0.88, 0.24, 1.0)
 const ATTACK_CONFIG := {
 	"startup": 0.30,
 	"active": 0.10,
 	"recovery": {
-		"hit": 0.40,
+		"hit": 0.48,
 		"whiff": 0.80,
 		"released": 0.40,
 		"interrupted": 0.50,
@@ -28,13 +31,14 @@ const ATTACK_CONFIG := {
 	"blocks_abilities": {
 		"startup": true,
 		"active": false,
-		"recovery": false,
+		"recovery": true,
 	},
 	"phase_tags": {
 		"startup": ["warning"],
 		"active": ["contact"],
 		"recovery": ["punishable"],
 	},
+	"recovery_allows_dash_cancel": false,
 }
 
 var _timeline: RefCounted = AttackTimeline.new()
@@ -81,6 +85,8 @@ func get_capture_state() -> Dictionary:
 		"attack_interrupted_tick": int(
 			_timeline_snapshot.get("attack_interrupted_tick", -1)
 		),
+		"counter_flash_t": _counter_flash_t(),
+		"counter_flash_color": COUNTER_FLASH_COLOR.to_html(),
 		"strike_heading": {
 			"x": float(STRIKE_HEADING.x),
 			"y": float(STRIKE_HEADING.y),
@@ -124,7 +130,7 @@ func _rebuild_to_frame(frame_index: int, fixed_step_hz: int) -> void:
 func _start_attack(simulation_frame: int, demo_name: String) -> bool:
 	return _timeline.start(
 		ATTACK_CONFIG,
-		{"attack_variant": "bite", "demo": demo_name},
+		{"attack_variant": "alligator_bite", "demo": demo_name},
 		STRIKE_HEADING,
 		simulation_frame,
 		1.0
@@ -202,6 +208,8 @@ func _timeline_render_state() -> Dictionary:
 		"attack_aim": STRIKE_HEADING,
 		"attack_reach": ATTACK_REACH,
 		"attack_variant": "bite",
+		"counter_flash_t": _counter_flash_t(),
+		"counter_flash_color": COUNTER_FLASH_COLOR,
 		"attack_phase_name": phase_name,
 		"attack_outcome_name": outcome_name,
 		"phase_t": phase_t,
@@ -212,6 +220,15 @@ func _timeline_render_state() -> Dictionary:
 		# A normal creature hit enters the live Bite latch pose during recovery.
 		anim["alligator_jaw_hold_pose"] = true
 	return anim
+
+
+func _counter_flash_t() -> float:
+	var frame_index := int(_clock_state.get("frame_index", 0))
+	if frame_index < COUNTER_FLASH_FIRST_FRAME \
+		or frame_index > COUNTER_FLASH_FINAL_FRAME:
+		return 0.0
+	return float(COUNTER_FLASH_FINAL_FRAME - frame_index + 1) \
+		/ float(COUNTER_FLASH_FINAL_FRAME - COUNTER_FLASH_FIRST_FRAME + 1)
 
 
 func _draw_backdrop() -> void:

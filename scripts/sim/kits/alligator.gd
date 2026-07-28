@@ -11,23 +11,44 @@ const InputFrameScript := preload("res://scripts/sim/input_frame.gd")
 const BITE_LATCH_SEC := 3.0
 const DEATH_ROLL_DPS := 30.0
 const DEATH_ROLL_SEC := 5.0
+const DEATH_ROLL_STARTUP_SEC := 0.35
+const DEATH_ROLL_NATURAL_EXIT_SEC := 0.40
+const DEATH_ROLL_INTERRUPTED_EXIT_SEC := 0.55
 const DEATH_ROLL_TURN_RAD_PER_SEC := TAU * 1.4
 const AMBUSH_STEALTH_SEC := 9999.0
 const AMBUSH_SLOW_MULT := 0.70
 const DEVOUR_HEAL_RATIO := 0.50
 
+const DEATH_ROLL_ACTION_ID := &"alligator_death_roll"
+const PHASE_IDLE := &"idle"
+const PHASE_STARTUP := &"startup"
+const PHASE_CHANNEL := &"channel"
+const PHASE_EXIT := &"exit"
+
 var death_roll_timer := 0.0
+var death_roll_phase := PHASE_IDLE
+var death_roll_phase_timer := 0.0
+var death_roll_exit_reason := ""
+var death_roll_sequence_id := 0
+var _death_roll_victim: Node = null
+var _q_was_down := false
+var _bite_latch_sequence_seen := 0
 var ambush_active := false
 
 func setup(actor: Node) -> void:
 	actor.primary_timer = 0.0
 	actor.q_timer = 0.0
 	actor.e_timer = 0.0
-	death_roll_timer = 0.0
+	death_roll_sequence_id = 0
+	_clear_death_roll_state()
+	_q_was_down = false
+	_bite_latch_sequence_seen = 0
 	ambush_active = false
 
 func reset_for_respawn(actor: Node) -> void:
-	death_roll_timer = 0.0
+	_clear_death_roll_state()
+	_q_was_down = false
+	_bite_latch_sequence_seen = 0
 	ambush_active = false
 	if actor.has_method("remove_modifiers_from_source"):
 		actor.remove_modifiers_from_source("Ambush")
@@ -35,9 +56,24 @@ func reset_for_respawn(actor: Node) -> void:
 func tick(actor: Node, delta: float) -> void:
 	_tick_death_roll(actor, delta)
 	_sync_ambush(actor)
+	var q_pressed := _q_is_pressed(actor)
+	var q_down := _q_is_down(actor)
+	var bite_latch_live := _has_live_bite_latch(actor)
+	var bite_latch_sequence := int(actor.get("latch_sequence_id")) if bite_latch_live else 0
+	var bite_contact_edge := bite_latch_live \
+		and bite_latch_sequence != _bite_latch_sequence_seen
+	var q_held_at_contact: bool = bite_contact_edge \
+		and actor.has_method("was_action_start_suppressed_by_policy") \
+		and actor.was_action_start_suppressed_by_policy(
+			InputFrameScript.BUTTON_ABILITY_Q
+		)
 	if actor.input_frame == null:
+		_q_was_down = false
+		_bite_latch_sequence_seen = bite_latch_sequence
 		return
 	if not actor.can_act():
+		_q_was_down = q_down
+		_bite_latch_sequence_seen = bite_latch_sequence
 		return
 
 	if actor.input_frame.is_pressed(InputFrameScript.BUTTON_PRIMARY):
@@ -49,13 +85,23 @@ func tick(actor: Node, delta: float) -> void:
 		and actor.input_frame.is_intentional_release(InputFrameScript.BUTTON_PRIMARY):
 		actor.release_latch("primary_release")
 
-	if actor.input_frame.is_pressed(InputFrameScript.BUTTON_ABILITY_Q) and actor.q_timer <= 0.0:
-		_try_death_roll(actor)
+	if (q_pressed or q_held_at_contact) \
+		and actor.q_timer <= 0.0 \
+		and death_roll_phase == PHASE_IDLE:
+		var q_press_edge := not _q_was_down
+		if q_press_edge or bite_contact_edge:
+			_try_death_roll(actor)
 	if actor.input_frame.is_pressed(InputFrameScript.BUTTON_ABILITY_E) \
 		and actor.e_timer <= 0.0 \
 		and not ambush_active \
 		and not actor.is_primary_attack_committed():
 		_start_ambush(actor)
+	_q_was_down = q_down
+	_bite_latch_sequence_seen = (
+		int(actor.get("latch_sequence_id"))
+		if _has_live_bite_latch(actor)
+		else 0
+	)
 
 func on_damage_taken(actor: Node, _event: Resource, _amount: float, _before_health: float) -> void:
 	_end_ambush(actor)
@@ -76,7 +122,7 @@ func _request_bite(actor: Node) -> bool:
 		"max_hits": 1,
 	}
 	if not actor.request_primary_attack(
-		"bite",
+		"alligator_bite",
 		payload,
 		Callable(self, "_resolve_bite").bind(actor)
 	):
@@ -112,7 +158,7 @@ func _request_bite(actor: Node) -> bool:
 
 func refresh_primary_attack_presentation(actor: Node) -> void:
 	var snapshot: Dictionary = actor.get_primary_attack_snapshot()
-	if String(snapshot.get("attack_variant", "")) != "bite" \
+	if String(snapshot.get("attack_variant", "")) != "alligator_bite" \
 		or String(snapshot.get("attack_phase_name", "")) != "startup":
 		return
 	var shape := _bite_shape_from_snapshot(actor, snapshot)
@@ -238,45 +284,175 @@ func _is_live_latch_target(target: Variant) -> bool:
 	return not target.has_method("is_alive") or target.is_alive()
 
 func _bite_startup_duration(actor: Node) -> float:
-	var timelines_value: Variant = actor.creature_data.get("primary_attack_timelines", {})
+	var timelines_value: Variant = actor.stats.get("action_timelines", {})
 	var timelines: Dictionary = timelines_value if typeof(timelines_value) == TYPE_DICTIONARY else {}
-	var bite_value: Variant = timelines.get("bite", {})
+	var bite_value: Variant = timelines.get("alligator_bite", {})
 	var bite: Dictionary = bite_value if typeof(bite_value) == TYPE_DICTIONARY else {}
 	var startup := maxf(float(bite.get("startup", 0.30)), 0.001)
 	var attack_speed := maxf(actor.get_modifier_value("attack_speed_mult", 1.0), 0.001)
 	return startup / attack_speed
 
-func _try_death_roll(actor: Node) -> void:
-	if actor.latch_victim == null or not is_instance_valid(actor.latch_victim):
-		return
-	if actor.latch_source != "Bite":
-		return
+func _try_death_roll(actor: Node) -> bool:
+	if not _has_live_bite_latch(actor):
+		return false
 	var victim: Node = actor.latch_victim
-	if not _is_water(victim):
-		return
+	if not _is_water(actor) or not _is_water(victim):
+		return false
 	_end_ambush(actor)
-	death_roll_timer = DEATH_ROLL_SEC
+	death_roll_sequence_id += 1
+	death_roll_phase = PHASE_STARTUP
+	death_roll_phase_timer = DEATH_ROLL_STARTUP_SEC
+	death_roll_timer = DEATH_ROLL_STARTUP_SEC + DEATH_ROLL_SEC
+	death_roll_exit_reason = ""
+	_death_roll_victim = victim
 	actor.latch_source = "Death Roll"
 	victim.latch_source = "Death Roll"
-	actor.latch_timer = maxf(actor.latch_timer, DEATH_ROLL_SEC)
+	actor.latch_timer = maxf(
+		actor.latch_timer,
+		DEATH_ROLL_STARTUP_SEC + DEATH_ROLL_SEC
+	)
 	victim.latch_timer = actor.latch_timer
 	actor.q_timer = KitHelpers.cooldown_seconds(KitHelpers.ability(actor.creature_data, "Q"))
+	return true
 
 func _tick_death_roll(actor: Node, delta: float) -> void:
-	if death_roll_timer <= 0.0:
+	if death_roll_phase == PHASE_IDLE:
 		return
-	if actor.latch_victim == null or not is_instance_valid(actor.latch_victim):
-		death_roll_timer = 0.0
+	var remaining_delta := maxf(delta, 0.0)
+	if death_roll_phase == PHASE_EXIT:
+		_advance_death_roll_exit(remaining_delta)
 		return
-	var victim: Node = actor.latch_victim
-	death_roll_timer = maxf(death_roll_timer - delta, 0.0)
-	actor.latch_timer = maxf(actor.latch_timer, death_roll_timer + delta)
-	victim.latch_timer = actor.latch_timer
-	victim.take_damage_event(actor.make_damage_event(DEATH_ROLL_DPS * delta, DamageEventScript.DELIVERY_MELEE, DamageEventScript.PLANE_GROUND, "Death Roll"))
-	if actor.latch_victim == victim and is_instance_valid(victim):
+	if not _death_roll_continuation_is_valid(actor):
+		_enter_death_roll_exit(actor, true, "invalidated")
+		_advance_death_roll_exit(remaining_delta)
+		return
+
+	while remaining_delta > 0.0 and (
+		death_roll_phase == PHASE_STARTUP
+		or death_roll_phase == PHASE_CHANNEL
+	):
+		if not _death_roll_continuation_is_valid(actor):
+			_enter_death_roll_exit(actor, true, "invalidated")
+			break
+		var slice := minf(remaining_delta, death_roll_phase_timer)
+		if death_roll_phase == PHASE_CHANNEL and slice > 0.0:
+			_apply_death_roll_channel_slice(actor, slice)
+		death_roll_phase_timer = maxf(death_roll_phase_timer - slice, 0.0)
+		death_roll_timer = maxf(death_roll_timer - slice, 0.0)
+		remaining_delta = maxf(remaining_delta - slice, 0.0)
+		if death_roll_phase_timer > 0.0:
+			break
+		if death_roll_phase == PHASE_STARTUP:
+			death_roll_phase = PHASE_CHANNEL
+			death_roll_phase_timer = DEATH_ROLL_SEC
+			death_roll_timer = DEATH_ROLL_SEC
+			continue
+		_enter_death_roll_exit(actor, false, "complete")
+		break
+
+	if death_roll_phase == PHASE_EXIT and remaining_delta > 0.0:
+		_advance_death_roll_exit(remaining_delta)
+
+func get_action_phase_records() -> Array:
+	if death_roll_phase == PHASE_IDLE:
+		return []
+	return [{
+		"action_id": DEATH_ROLL_ACTION_ID,
+		"sequence_id": death_roll_sequence_id,
+		"phase": death_roll_phase,
+		"counter_vulnerable": death_roll_phase == PHASE_STARTUP,
+	}]
+
+func on_latch_released(actor: Node, reason: String) -> void:
+	if death_roll_phase == PHASE_STARTUP or death_roll_phase == PHASE_CHANNEL:
+		_enter_death_roll_exit(actor, true, reason)
+
+func tick_match_end(actor: Node, delta: float) -> void:
+	if death_roll_phase == PHASE_STARTUP or death_roll_phase == PHASE_CHANNEL:
+		_enter_death_roll_exit(actor, true, "match_end")
+	if death_roll_phase == PHASE_EXIT:
+		_advance_death_roll_exit(maxf(delta, 0.0))
+
+func _apply_death_roll_channel_slice(actor: Node, delta: float) -> void:
+	var victim := _death_roll_victim
+	if victim == null or not is_instance_valid(victim):
+		return
+	victim.take_damage_event(actor.make_damage_event(
+		DEATH_ROLL_DPS * delta,
+		DamageEventScript.DELIVERY_MELEE,
+		DamageEventScript.PLANE_GROUND,
+		"Death Roll"
+	))
+	if _death_roll_continuation_is_valid(actor):
 		_apply_roll_motion(actor, victim, delta)
-	if death_roll_timer <= 0.0 and actor.latch_victim == victim:
-		actor.release_latch("death_roll_done")
+
+func _enter_death_roll_exit(
+	actor: Node,
+	interrupted: bool,
+	reason: String
+) -> void:
+	if death_roll_phase == PHASE_IDLE or death_roll_phase == PHASE_EXIT:
+		return
+	var victim := _death_roll_victim
+	death_roll_phase = PHASE_EXIT
+	death_roll_phase_timer = (
+		DEATH_ROLL_INTERRUPTED_EXIT_SEC
+		if interrupted
+		else DEATH_ROLL_NATURAL_EXIT_SEC
+	)
+	death_roll_timer = 0.0
+	death_roll_exit_reason = reason
+	if actor.latch_victim == victim:
+		actor.release_latch(
+			"death_roll_interrupted" if interrupted else "death_roll_done"
+		)
+	_death_roll_victim = null
+
+func _advance_death_roll_exit(delta: float) -> void:
+	death_roll_phase_timer = maxf(death_roll_phase_timer - delta, 0.0)
+	if death_roll_phase_timer <= 0.0:
+		_clear_death_roll_state()
+
+func _clear_death_roll_state() -> void:
+	death_roll_timer = 0.0
+	death_roll_phase = PHASE_IDLE
+	death_roll_phase_timer = 0.0
+	death_roll_exit_reason = ""
+	_death_roll_victim = null
+
+func _death_roll_continuation_is_valid(actor: Node) -> bool:
+	var victim := _death_roll_victim
+	if not _is_live_latch_attacker(actor) or not _is_live_latch_target(victim):
+		return false
+	if actor.latch_victim != victim or victim.latched_attacker != actor:
+		return false
+	if actor.latch_source != "Death Roll" or victim.latch_source != "Death Roll":
+		return false
+	if not actor.can_act():
+		return false
+	if actor.get("arena") != null and actor.arena.get("match_over") == true:
+		return false
+	return _is_water(actor) and _is_water(victim)
+
+func _has_live_bite_latch(actor: Node) -> bool:
+	if not _is_live_latch_attacker(actor):
+		return false
+	var victim: Variant = actor.latch_victim
+	return _is_live_latch_target(victim) \
+		and victim.latched_attacker == actor \
+		and actor.latch_source == "Bite" \
+		and victim.latch_source == "Bite"
+
+func _q_is_pressed(actor: Node) -> bool:
+	return actor.input_frame != null \
+		and actor.input_frame.is_pressed(InputFrameScript.BUTTON_ABILITY_Q) \
+		and not actor.input_frame.is_suppressed(InputFrameScript.BUTTON_ABILITY_Q)
+
+func _q_is_down(actor: Node) -> bool:
+	return actor.input_frame != null and (
+		actor.input_frame.is_pressed(InputFrameScript.BUTTON_ABILITY_Q)
+		or actor.input_frame.is_suppressed(InputFrameScript.BUTTON_ABILITY_Q)
+	)
 
 func _apply_roll_motion(actor: Node, victim: Node, delta: float) -> void:
 	var offset: Vector2 = actor.global_position - victim.global_position

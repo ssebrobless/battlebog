@@ -152,21 +152,27 @@ func _check_render_hitstop(failures: Array[String]) -> void:
 	var event: Resource = actor.make_damage_event(60.0, DamageEventScript.DELIVERY_MELEE, DamageEventScript.PLANE_GROUND, "Heavy Meta")
 	event.set_hit(target.global_position, Vector2.LEFT)
 	target.take_damage_event(event)
-	var both_stopped: bool = actor.render_hitstop_timer > 0.0 and target.render_hitstop_timer > 0.0
+	var both_stopped: bool = actor.render_hitstop_frames == 3 and target.render_hitstop_frames == 3
 	var frozen_before: float = target.anim_attack_timer
 	target._process(0.01)
-	var render_frozen: bool = absf(target.anim_attack_timer - frozen_before) < 0.0001 and target.render_hitstop_timer > 0.0
+	target._process(0.10)
+	target._process(0.001)
+	var render_frozen: bool = absf(target.anim_attack_timer - frozen_before) < 0.0001 \
+		and target.render_hitstop_frames == 0
+	target._process(0.01)
+	var resumed_after_three: bool = target.anim_attack_timer < frozen_before
 	target.set_input_frame(_frame(Vector2.RIGHT))
 	var before_pos: Vector2 = target.global_position
 	target.tick_sim(0.10)
 	var sim_advanced: bool = target.global_position.distance_to(before_pos) > 0.1
-	if not both_stopped or not render_frozen or not sim_advanced:
-		failures.append("heavy hitstop should freeze render timers only; both=%s frozen=%s sim=%s timers=%.3f/%.3f pos_delta=%.2f" % [
+	if not both_stopped or not render_frozen or not resumed_after_three or not sim_advanced:
+		failures.append("heavy hitstop should freeze exactly three render frames only; both=%s frozen=%s resumed=%s sim=%s frames=%d/%d pos_delta=%.2f" % [
 			str(both_stopped),
 			str(render_frozen),
+			str(resumed_after_three),
 			str(sim_advanced),
-			actor.render_hitstop_timer,
-			target.render_hitstop_timer,
+			actor.render_hitstop_frames,
+			target.render_hitstop_frames,
 			target.global_position.distance_to(before_pos)
 		])
 	arena.queue_free()
@@ -186,6 +192,23 @@ func _check_counter_hit(failures: Array[String]) -> void:
 		"counter_hit_window": true
 	})
 	var windup_window: bool = target.counter_hit_window_timer > 0.19
+	var ally := _creature(arena, "bullfrog", 1, Vector2.LEFT * 40.0)
+	var ally_before: float = target.health
+	var ally_event: Resource = ally.make_damage_event(10.0, DamageEventScript.DELIVERY_RANGED, DamageEventScript.PLANE_GROUND, "Ally Probe")
+	target.take_damage_event(ally_event)
+	var ally_loss: float = ally_before - target.health
+	var environment_before: float = target.health
+	var environment_event := DamageEventScript.new()
+	environment_event.setup(10.0, DamageEventScript.DELIVERY_AREA, DamageEventScript.PLANE_GROUND, null, "Bog Hazard")
+	target.take_damage_event(environment_event)
+	var environment_loss: float = environment_before - target.health
+	var dead_source := _creature(arena, "bullfrog", 0, Vector2.LEFT * 60.0)
+	dead_source.alive = false
+	var dead_before: float = target.health
+	var dead_event: Resource = dead_source.make_damage_event(10.0, DamageEventScript.DELIVERY_AREA, DamageEventScript.PLANE_GROUND, "Lingering Field")
+	target.take_damage_event(dead_event)
+	var dead_loss: float = dead_before - target.health
+	arena.vfx_events.clear()
 	var before: float = target.health
 	var event: Resource = actor.make_damage_event(10.0, DamageEventScript.DELIVERY_RANGED, DamageEventScript.PLANE_GROUND, "Counter Probe")
 	event.set_hit(target.global_position, Vector2.LEFT)
@@ -194,12 +217,28 @@ func _check_counter_hit(failures: Array[String]) -> void:
 	var landed := _last_hit(arena)
 	var counter_event: bool = _has_event(arena, "counter_hit")
 	var marked: bool = bool(landed.get("counter_hit", false))
-	if not windup_window or absf(loss - 12.0) > 0.01 or not counter_event or not marked:
-		failures.append("counter hit should opt in from windup and scale/mark damage; windup=%s loss=%.2f vfx=%s marked=%s event=%s" % [
+	var flashed: bool = target.render_counter_flash_timer == target.COUNTER_FLASH_SEC
+	var flash_state: Dictionary = target.get_render_motion_state()
+	var flash_contract: bool = target.COUNTER_FLASH_COLOR == Color(1.0, 0.88, 0.24, 1.0) \
+		and absf(float(flash_state.get("counter_flash_t", 0.0)) - 1.0) < 0.001
+	if not windup_window \
+		or absf(ally_loss - 10.0) > 0.01 \
+		or absf(environment_loss - 10.0) > 0.01 \
+		or absf(dead_loss - 10.0) > 0.01 \
+		or absf(loss - 12.0) > 0.01 \
+		or not counter_event \
+		or not marked \
+		or not flashed \
+		or not flash_contract:
+		failures.append("counter hit should require a live enemy attribution, scale/mark damage, and start the gold body flash; windup=%s ally=%.2f environment=%.2f dead=%.2f loss=%.2f vfx=%s marked=%s flash=%s event=%s" % [
 			str(windup_window),
+			ally_loss,
+			environment_loss,
+			dead_loss,
 			loss,
 			str(counter_event),
 			str(marked),
+			str(flash_state),
 			str(landed)
 		])
 	arena.queue_free()

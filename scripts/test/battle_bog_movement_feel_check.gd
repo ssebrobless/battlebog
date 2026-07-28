@@ -2331,7 +2331,7 @@ func _check_actor_redraw_signatures(arena: Node, failures: Array[String]) -> voi
 	actor.apply_creature("snapping_turtle")
 	actor.global_position = arena.player.global_position
 	actor.velocity = Vector2.ZERO
-	actor.render_hitstop_timer = 0.0
+	actor.render_hitstop_frames = 0
 	actor.render_flash_timer = 0.0
 	actor.render_shake_timer = 0.0
 	actor.anim_attack_timer = 0.0

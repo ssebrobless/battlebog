@@ -20,13 +20,14 @@
     },
     {
       "id": "alligator_attack_reel",
-      "description": "Deterministic Alligator ordinary attack reel covering neutral, startup, active, and outcome-specific recovery reads.",
+      "description": "Deterministic Alligator ordinary attack reel covering neutral, startup, active, counter-flash endpoints, and outcome-specific recovery reads.",
       "script": "res://scripts/test/visual/scenarios/alligator_attack_reel_scenario.gd",
       "seed": 107907,
       "capture_frames": [
         0,
         12,
         24,
+        30,
         36,
         96,
         153

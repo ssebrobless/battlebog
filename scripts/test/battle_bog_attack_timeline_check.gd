@@ -56,6 +56,7 @@ class SignalSource:
 func _initialize() -> void:
 	var failures: Array[String] = []
 	_check_boundaries_and_progress(failures)
+	_check_current_phase_name(failures)
 	_check_overshoot_and_single_resolution(failures)
 	_check_outcomes(failures)
 	_check_interruptions(failures)
@@ -66,6 +67,7 @@ func _initialize() -> void:
 	_check_resolver_reentrancy(failures)
 	_check_invalid_configs(failures)
 	_check_public_config_normalization(failures)
+	_check_recovery_dash_cancel_normalization(failures)
 	_check_value_only_boundaries(failures)
 
 	print("attack_timeline failures=%d" % failures.size())
@@ -103,6 +105,43 @@ func _check_boundaries_and_progress(failures: Array[String]) -> void:
 	timeline.advance(0.40, 17, probe.resolve)
 	if not timeline.is_idle() or probe.calls != 1:
 		failures.append("exact recovery boundary should return idle without a second resolution")
+
+
+func _check_current_phase_name(failures: Array[String]) -> void:
+	var timeline: RefCounted = AttackTimeline.new()
+	if timeline.current_phase_name() != &"idle":
+		failures.append("current_phase_name should report idle before an attack starts")
+
+	var probe := ResolverProbe.new({"outcome": "hit"})
+	timeline.start(_config(), {}, Vector2.RIGHT, 20, 1.0)
+	if timeline.current_phase_name() != &"startup":
+		failures.append("current_phase_name should report startup after start")
+
+	timeline.advance(0.20, 21, probe.resolve)
+	if timeline.current_phase_name() != &"active":
+		failures.append("current_phase_name should report active at the startup boundary")
+
+	timeline.advance(0.10, 22, probe.resolve)
+	if timeline.current_phase_name() != &"recovery":
+		failures.append("current_phase_name should report recovery at the active boundary")
+
+	timeline.advance(0.40, 23, probe.resolve)
+	if timeline.current_phase_name() != &"idle":
+		failures.append("current_phase_name should return to idle after recovery")
+
+	timeline.start(_config(), {}, Vector2.RIGHT, 30, 1.0)
+	timeline.interrupt("stunned", 31)
+	if timeline.current_phase_name() != &"recovery":
+		failures.append("soft startup interruption should report recovery")
+
+	timeline.reset()
+	if timeline.current_phase_name() != &"idle":
+		failures.append("reset should make current_phase_name report idle")
+
+	timeline.start(_config(), {}, Vector2.RIGHT, 40, 1.0)
+	timeline.interrupt("death", 41, true)
+	if timeline.current_phase_name() != &"idle":
+		failures.append("hard interruption should make current_phase_name report idle")
 
 
 func _check_overshoot_and_single_resolution(failures: Array[String]) -> void:
@@ -399,6 +438,7 @@ func _check_public_config_normalization(failures: Array[String]) -> void:
 		or absf(float(normalized.durations.startup) - 0.20) > EPSILON \
 		or absf(float(normalized.movement_multipliers.active) - 0.20) > EPSILON \
 		or not bool(normalized.ability_blocks.startup) \
+		or bool(normalized.recovery_allows_dash_cancel) \
 		or normalized.phase_tags.active != ["contact"]:
 		failures.append("public config normalization should return the canonical config; got=%s" % str(normalized))
 		return
@@ -414,6 +454,64 @@ func _check_public_config_normalization(failures: Array[String]) -> void:
 	invalid.recovery.hit = INF
 	if not AttackTimeline.normalize_config(invalid).is_empty():
 		failures.append("public config normalization should reject invalid catalog data")
+
+
+func _check_recovery_dash_cancel_normalization(failures: Array[String]) -> void:
+	var default_config := _config()
+	var default_normalized: Dictionary = AttackTimeline.normalize_config(default_config)
+	if default_normalized.is_empty() \
+		or not default_normalized.has("recovery_allows_dash_cancel") \
+		or bool(default_normalized.recovery_allows_dash_cancel):
+		failures.append("recovery dash cancel should normalize to false by default; got=%s" % [
+			str(default_normalized)
+		])
+
+	var enabled_config := _config()
+	enabled_config.recovery_allows_dash_cancel = true
+	var enabled_normalized: Dictionary = AttackTimeline.normalize_config(enabled_config)
+	if enabled_normalized.is_empty() \
+		or not bool(enabled_normalized.recovery_allows_dash_cancel):
+		failures.append("an explicit recovery dash cancel true policy should be preserved; got=%s" % [
+			str(enabled_normalized)
+		])
+	var enabled_timeline: RefCounted = AttackTimeline.new()
+	var enabled_probe := ResolverProbe.new({"outcome": "hit"})
+	enabled_timeline.start(enabled_config, {}, Vector2.RIGHT, 80, 1.0)
+	if enabled_timeline.recovery_allows_dash_cancel():
+		failures.append("dash-cancel policy must remain inactive before recovery")
+	enabled_timeline.advance(0.31, 81, enabled_probe.resolve)
+	if not enabled_timeline.recovery_allows_dash_cancel():
+		failures.append("an explicit true dash-cancel policy must be owned by recovery")
+	enabled_timeline.reset()
+	if enabled_timeline.recovery_allows_dash_cancel():
+		failures.append("reset must clear the recovery dash-cancel policy")
+
+	for invalid_value: Variant in [0, 1, "false", null, {}, []]:
+		var invalid_config := _config()
+		invalid_config.recovery_allows_dash_cancel = invalid_value
+		if not AttackTimeline.normalize_config(invalid_config).is_empty():
+			failures.append("recovery dash cancel should reject non-boolean value %s" % [
+				str(invalid_value)
+			])
+
+	var arbitrary_recovery_config := _config()
+	arbitrary_recovery_config.recovery = {
+		"hit": 7.25,
+		"whiff": 0.013,
+		"released": 19.5,
+		"interrupted": 2.75,
+	}
+	var arbitrary_normalized: Dictionary = AttackTimeline.normalize_config(
+		arbitrary_recovery_config
+	)
+	if arbitrary_normalized.is_empty() \
+		or absf(float(arbitrary_normalized.durations.hit) - 7.25) > EPSILON \
+		or absf(float(arbitrary_normalized.durations.whiff) - 0.013) > EPSILON \
+		or absf(float(arbitrary_normalized.durations.released) - 19.5) > EPSILON \
+		or absf(float(arbitrary_normalized.durations.interrupted) - 2.75) > EPSILON:
+		failures.append("pure timeline mechanics must preserve arbitrary positive recovery durations; got=%s" % [
+			str(arbitrary_normalized)
+		])
 
 
 func _check_value_only_boundaries(failures: Array[String]) -> void:

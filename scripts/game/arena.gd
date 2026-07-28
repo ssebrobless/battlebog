@@ -2229,6 +2229,8 @@ func _feed_registered_inputs() -> void:
 			)
 			var controller_kind := String(routed_controller_kinds.get(actor_key, ""))
 			var actor_alive: bool = actor.has_method("is_alive") and actor.is_alive()
+			if actor_alive and actor.has_method("filter_action_start_frame"):
+				frame = actor.filter_action_start_frame(frame)
 			if routing_valid and actor_alive:
 				if frame.is_pressed(InputFrameScript.BUTTON_HABITAT_DEPOSIT):
 					if controller_kind == MatchSlotRegistryScript.CONTROLLER_LOCAL_HUMAN:
@@ -4167,11 +4169,16 @@ func _spawn_vfx_for_event(event: Dictionary) -> void:
 				"remaining": 0.16
 			})
 		"counter_hit":
+			var counter_target: Variant = event.get("target", null)
+			if counter_target != null \
+				and is_instance_valid(counter_target) \
+				and counter_target.has_method("begin_render_counter_flash"):
+				counter_target.begin_render_counter_flash()
 			telegraphs.append({
 				"type": "float_text",
 				"position": event.get("position", Vector2.ZERO),
 				"text": "COUNTER",
-				"color": Color(1.0, 0.25, 0.18, 1.0),
+				"color": Color(1.0, 0.88, 0.24, 1.0),
 				"size": 17,
 				"duration": 0.55,
 				"remaining": 0.55
@@ -4180,7 +4187,7 @@ func _spawn_vfx_for_event(event: Dictionary) -> void:
 				"type": "circle",
 				"center": event.get("position", Vector2.ZERO),
 				"radius": 18.0,
-				"color": Color(1.0, 0.25, 0.18, 0.8),
+				"color": Color(1.0, 0.88, 0.24, 0.8),
 				"width": 3.0,
 				"filled": false,
 				"duration": 0.18,
@@ -4748,6 +4755,8 @@ func _freeze_match_world() -> void:
 		if neutralized.has(entity_id):
 			continue
 		neutralized[entity_id] = true
+		if entity.has_method("on_match_ended"):
+			entity.on_match_ended()
 		if entity.has_method("set_input_frame"):
 			entity.set_input_frame(InputFrameScript.new())
 	switch_action_neutral_ticks.clear()

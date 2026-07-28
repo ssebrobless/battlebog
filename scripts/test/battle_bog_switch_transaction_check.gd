@@ -191,15 +191,21 @@ func _check_successful_switch(
 	var to_actor: Node = arena.player_squad[to_index]
 	_seed_brain_caches(brain, from_actor, to_actor)
 	var timeline_data: Dictionary = from_actor.creature_data.duplicate(true)
-	timeline_data["primary_attack_timelines"] = {
+	var timeline_stats: Dictionary = timeline_data.get("stats", {}).duplicate(true)
+	timeline_stats["action_timelines"] = {
 		"switch_probe": SWITCH_TIMELINE_CONFIG.duplicate(true),
 	}
+	timeline_data["stats"] = timeline_stats
 	from_actor.creature_data = timeline_data
+	from_actor.stats = timeline_stats
 	var target_timeline_data: Dictionary = to_actor.creature_data.duplicate(true)
-	target_timeline_data["primary_attack_timelines"] = {
+	var target_timeline_stats: Dictionary = target_timeline_data.get("stats", {}).duplicate(true)
+	target_timeline_stats["action_timelines"] = {
 		"switch_probe": SWITCH_TIMELINE_CONFIG.duplicate(true),
 	}
+	target_timeline_data["stats"] = target_timeline_stats
 	to_actor.creature_data = target_timeline_data
+	to_actor.stats = target_timeline_stats
 	var source_was_committed: bool = from_actor.is_primary_attack_committed()
 	var target_was_committed: bool = to_actor.is_primary_attack_committed()
 	if not source_was_committed:

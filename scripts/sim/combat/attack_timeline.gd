@@ -37,6 +37,7 @@ var _phase_duration := 0.0
 var _durations: Dictionary = {}
 var _movement_multipliers: Dictionary = {}
 var _ability_blocks: Dictionary = {}
+var _recovery_allows_dash_cancel := false
 var _phase_tags: Dictionary = {}
 var _payload: Dictionary = {}
 var _strike_heading := Vector2.RIGHT
@@ -90,6 +91,7 @@ func start(
 		_durations[key] = float(_durations[key]) / time_scale
 	_movement_multipliers = normalized["movement_multipliers"].duplicate(true)
 	_ability_blocks = normalized["ability_blocks"].duplicate(true)
+	_recovery_allows_dash_cancel = bool(normalized["recovery_allows_dash_cancel"])
 	_phase_tags = normalized["phase_tags"].duplicate(true)
 	_enter_phase(Phase.STARTUP, float(_durations["startup"]))
 	return true
@@ -169,6 +171,7 @@ func reset() -> void:
 	_durations.clear()
 	_movement_multipliers.clear()
 	_ability_blocks.clear()
+	_recovery_allows_dash_cancel = false
 	_phase_tags.clear()
 	_payload.clear()
 	_strike_heading = Vector2.RIGHT
@@ -205,6 +208,10 @@ func is_idle() -> bool:
 	return _phase == Phase.IDLE
 
 
+func current_phase_name() -> StringName:
+	return StringName(_PHASE_NAMES[_phase])
+
+
 func movement_multiplier() -> float:
 	if is_idle():
 		return 1.0
@@ -215,6 +222,9 @@ func blocks_abilities() -> bool:
 	if is_idle():
 		return false
 	return bool(_ability_blocks.get(_PHASE_NAMES[_phase], false))
+
+func recovery_allows_dash_cancel() -> bool:
+	return _phase == Phase.RECOVERY and _recovery_allows_dash_cancel
 
 
 func has_phase_tag(tag: String) -> bool:
@@ -260,6 +270,12 @@ static func normalize_config(config: Dictionary) -> Dictionary:
 	)
 	if ability_blocks.is_empty():
 		return {}
+	var recovery_allows_dash_cancel_value: Variant = config.get(
+		"recovery_allows_dash_cancel",
+		false
+	)
+	if typeof(recovery_allows_dash_cancel_value) != TYPE_BOOL:
+		return {}
 	var tags := _normalize_tags(config.get("phase_tags", {}))
 	if tags.is_empty():
 		return {}
@@ -268,6 +284,7 @@ static func normalize_config(config: Dictionary) -> Dictionary:
 		"durations": durations,
 		"movement_multipliers": movement,
 		"ability_blocks": ability_blocks,
+		"recovery_allows_dash_cancel": bool(recovery_allows_dash_cancel_value),
 		"phase_tags": tags,
 	}
 

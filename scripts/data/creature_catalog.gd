@@ -7,6 +7,10 @@ const DEFAULT_PRIMARY_ATTACK_AIM_POLICY := "locked_at_acceptance"
 const PRIMARY_ATTACK_AIM_POLICIES := [
 	DEFAULT_PRIMARY_ATTACK_AIM_POLICY,
 ]
+const ALLIGATOR_ID := "alligator"
+const ALLIGATOR_BITE_ACTION_ID := "alligator_bite"
+const PRODUCTION_HIT_RECOVERY_RATIO := 0.60
+const FLOAT_EPSILON := 0.0001
 
 var creatures_by_id: Dictionary = {}
 var creatures: Array[Dictionary] = []
@@ -47,16 +51,27 @@ func load_catalog(path := ROSTER_PATH, emit_errors := true) -> bool:
 		if not creature.has("stats") or typeof(creature.get("stats")) != TYPE_DICTIONARY:
 			_report_error("Creature %s is missing stats." % creature_id, emit_errors)
 			valid = false
+		var stats_value: Variant = creature.get("stats", {})
+		var stats: Dictionary = stats_value if typeof(stats_value) == TYPE_DICTIONARY else {}
 		if not creature.has("footprint") or typeof(creature.get("footprint")) != TYPE_DICTIONARY:
 			_report_error("Creature %s is missing footprint." % creature_id, emit_errors)
 			valid = false
 		if not _validate_hurtbox_regions(creature_id, creature.get("hurtbox_regions", []), emit_errors):
 			valid = false
-		if creature.has("primary_attack_timelines") and not _validate_primary_attack_timelines(
+		if creature.has("primary_attack_timelines"):
+			_report_error(
+				"Creature %s uses legacy top-level primary_attack_timelines; use stats.action_timelines."
+				% creature_id,
+				emit_errors
+			)
+			valid = false
+		if stats.has("action_timelines") and not _validate_action_timelines(
 			creature_id,
-			creature.get("primary_attack_timelines"),
+			stats.get("action_timelines"),
 			emit_errors
 		):
+			valid = false
+		if creature_id == ALLIGATOR_ID and not _validate_alligator_bite_contract(stats, emit_errors):
 			valid = false
 		if String(creature.get("diet", "")).is_empty():
 			_report_error("Creature %s is missing diet." % creature_id, emit_errors)
@@ -122,14 +137,14 @@ func _validate_hurtbox_regions(creature_id: String, regions: Variant, emit_error
 			valid = false
 	return valid
 
-func _validate_primary_attack_timelines(
+func _validate_action_timelines(
 	creature_id: String,
 	timelines_value: Variant,
 	emit_errors: bool
 ) -> bool:
 	if typeof(timelines_value) != TYPE_DICTIONARY:
 		_report_error(
-			"Creature %s primary_attack_timelines must be an object." % creature_id,
+			"Creature %s stats.action_timelines must be an object." % creature_id,
 			emit_errors
 		)
 		return false
@@ -137,48 +152,48 @@ func _validate_primary_attack_timelines(
 	var timelines: Dictionary = timelines_value
 	if timelines.is_empty():
 		_report_error(
-			"Creature %s primary_attack_timelines must define at least one variant." % creature_id,
+			"Creature %s stats.action_timelines must define at least one action." % creature_id,
 			emit_errors
 		)
 		return false
 
 	var valid := true
-	for variant_name_value: Variant in timelines:
-		if typeof(variant_name_value) != TYPE_STRING and typeof(variant_name_value) != TYPE_STRING_NAME:
+	for action_name_value: Variant in timelines:
+		if typeof(action_name_value) != TYPE_STRING and typeof(action_name_value) != TYPE_STRING_NAME:
 			_report_error(
-				"Creature %s primary attack variant names must be strings." % creature_id,
+				"Creature %s action timeline names must be strings." % creature_id,
 				emit_errors
 			)
 			valid = false
 			continue
 
-		var variant_name := String(variant_name_value).strip_edges()
-		if variant_name.is_empty():
+		var action_name := String(action_name_value).strip_edges()
+		if action_name.is_empty():
 			_report_error(
-				"Creature %s primary attack variant name must not be empty." % creature_id,
+				"Creature %s action timeline name must not be empty." % creature_id,
 				emit_errors
 			)
 			valid = false
 			continue
 
-		var variant_value: Variant = timelines[variant_name_value]
-		if typeof(variant_value) != TYPE_DICTIONARY:
+		var action_value: Variant = timelines[action_name_value]
+		if typeof(action_value) != TYPE_DICTIONARY:
 			_report_error(
-				"Creature %s primary attack variant %s must be an object." % [creature_id, variant_name],
+				"Creature %s action timeline %s must be an object." % [creature_id, action_name],
 				emit_errors
 			)
 			valid = false
 			continue
 
-		var variant: Dictionary = variant_value
-		if variant.is_empty() or AttackTimeline.normalize_config(variant).is_empty():
+		var action: Dictionary = action_value
+		if action.is_empty() or AttackTimeline.normalize_config(action).is_empty():
 			_report_error(
-				"Creature %s primary attack variant %s has an invalid timeline config." % [creature_id, variant_name],
+				"Creature %s action timeline %s has an invalid timeline config." % [creature_id, action_name],
 				emit_errors
 			)
 			valid = false
 
-		var aim_policy_value: Variant = variant.get(
+		var aim_policy_value: Variant = action.get(
 			"aim_policy",
 			DEFAULT_PRIMARY_ATTACK_AIM_POLICY
 		)
@@ -187,22 +202,71 @@ func _validate_primary_attack_timelines(
 			and typeof(aim_policy_value) != TYPE_STRING_NAME
 		) or not PRIMARY_ATTACK_AIM_POLICIES.has(String(aim_policy_value)):
 			_report_error(
-				"Creature %s primary attack variant %s aim_policy must be one of %s."
-				% [creature_id, variant_name, str(PRIMARY_ATTACK_AIM_POLICIES)],
+				"Creature %s action timeline %s aim_policy must be one of %s."
+				% [creature_id, action_name, str(PRIMARY_ATTACK_AIM_POLICIES)],
 				emit_errors
 			)
 			valid = false
 
-		if variant.has("cooldown_sec"):
-			var cooldown := _number_or_nan(variant.get("cooldown_sec"))
+		if action.has("cooldown_sec"):
+			var cooldown := _number_or_nan(action.get("cooldown_sec"))
 			if is_nan(cooldown) or is_inf(cooldown) or cooldown <= 0.0:
 				_report_error(
-					"Creature %s primary attack variant %s cooldown_sec must be finite and positive."
-					% [creature_id, variant_name],
+					"Creature %s action timeline %s cooldown_sec must be finite and positive."
+					% [creature_id, action_name],
 					emit_errors
 				)
 				valid = false
 
+	return valid
+
+func _validate_alligator_bite_contract(stats: Dictionary, emit_errors: bool) -> bool:
+	var timelines_value: Variant = stats.get("action_timelines", null)
+	if typeof(timelines_value) != TYPE_DICTIONARY:
+		_report_error(
+			"Creature alligator must define stats.action_timelines.%s." % ALLIGATOR_BITE_ACTION_ID,
+			emit_errors
+		)
+		return false
+
+	var timelines: Dictionary = timelines_value
+	var bite_value: Variant = timelines.get(ALLIGATOR_BITE_ACTION_ID, null)
+	if typeof(bite_value) != TYPE_DICTIONARY:
+		_report_error(
+			"Creature alligator must define stats.action_timelines.%s." % ALLIGATOR_BITE_ACTION_ID,
+			emit_errors
+		)
+		return false
+
+	var bite: Dictionary = bite_value
+	var recovery_value: Variant = bite.get("recovery", null)
+	if typeof(recovery_value) != TYPE_DICTIONARY:
+		return false
+	var recovery: Dictionary = recovery_value
+	var hit := _number_or_nan(recovery.get("hit", NAN))
+	var whiff := _number_or_nan(recovery.get("whiff", NAN))
+	var valid := true
+	if (
+		is_nan(hit)
+		or is_nan(whiff)
+		or absf(hit - whiff * PRODUCTION_HIT_RECOVERY_RATIO) > FLOAT_EPSILON
+	):
+		_report_error(
+			"Creature alligator alligator_bite hit recovery must equal whiff recovery * 0.60.",
+			emit_errors
+		)
+		valid = false
+
+	var blocks_value: Variant = bite.get("blocks_abilities", null)
+	if (
+		typeof(blocks_value) != TYPE_DICTIONARY
+		or (blocks_value as Dictionary).get("recovery", null) != true
+	):
+		_report_error(
+			"Creature alligator alligator_bite recovery must block action starts.",
+			emit_errors
+		)
+		valid = false
 	return valid
 
 func _report_error(message: String, emit_errors: bool) -> void:

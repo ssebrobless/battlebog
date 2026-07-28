@@ -41,8 +41,19 @@ const FLIGHT_GROUNDED_LOCKOUT_SEC := 3.0
 const TERRAIN_SPEED_LERP_RATE := 9.0
 const HUNGER_MAX := 100.0
 const HUNGER_FULL_TO_EMPTY_SEC := 105.0
-const HITSTOP_SEC := 3.0 / 60.0
+const HITSTOP_FRAMES := 3
 const COUNTER_HIT_MULT := 1.2
+const COUNTER_FLASH_COLOR := Color(1.0, 0.88, 0.24, 1.0)
+const COUNTER_FLASH_SEC := 0.12
+const ACTION_START_BUTTONS := InputFrameScript.BUTTON_PRIMARY \
+	| InputFrameScript.BUTTON_ABILITY_Q \
+	| InputFrameScript.BUTTON_ABILITY_E \
+	| InputFrameScript.BUTTON_HUT_DEFEND \
+	| InputFrameScript.BUTTON_HABITAT_DEPOSIT \
+	| InputFrameScript.BUTTON_CONTEXT_ACTION \
+	| InputFrameScript.BUTTON_FLIGHT_TOGGLE
+const ABILITY_START_BUTTONS := InputFrameScript.BUTTON_ABILITY_Q \
+	| InputFrameScript.BUTTON_ABILITY_E
 const RESIDUAL_DASH_DECAY_PER_TICK := 0.68
 const RESIDUAL_DASH_STOP_SPEED := 3.0
 const LANDING_TELL_SEC := 0.16
@@ -99,6 +110,7 @@ var stats: Dictionary = {}
 var movement_tags: Array = []
 var state := CreatureStateScript.State.NORMAL
 var input_frame: Resource = null
+var action_policy_suppressed_buttons := 0
 var max_health := 1.0
 var health := 1.0
 var body_radius := 8.0
@@ -145,11 +157,13 @@ var latched_attacker: Node = null
 var latch_victim: Node = null
 var latch_timer := 0.0
 var latch_source := ""
+var latch_sequence_id := 0
 var latch_execute_timer := 0.0
 var latch_move_multiplier := 1.0
 var last_aim_direction := Vector2.RIGHT
 var body_heading := Vector2.RIGHT
-var render_hitstop_timer := 0.0
+var render_hitstop_frames := 0
+var render_counter_flash_timer := 0.0
 var render_flash_timer := 0.0
 var render_flash_region_mult := 1.0
 var render_shake_timer := 0.0
@@ -240,6 +254,7 @@ func apply_creature(next_creature_id: String) -> void:
 	latch_victim = null
 	latch_timer = 0.0
 	latch_source = ""
+	latch_sequence_id = 0
 	latch_execute_timer = 0.0
 	steering_velocity = Vector2.ZERO
 	residual_velocity = Vector2.ZERO
@@ -256,6 +271,9 @@ func apply_creature(next_creature_id: String) -> void:
 	render_plunge_timer = 0.0
 	render_air_attack_startup_timer = 0.0
 	render_air_attack_startup_duration = AIR_ATTACK_STARTUP_TELL_SEC
+	render_hitstop_frames = 0
+	render_counter_flash_timer = 0.0
+	action_policy_suppressed_buttons = 0
 	low_window_timer = 0.0
 	counter_hit_window_timer = 0.0
 	body_heading = last_aim_direction.normalized() if last_aim_direction != Vector2.ZERO else Vector2.RIGHT
@@ -278,10 +296,11 @@ func _physics_process(delta: float) -> void:
 		PerfStats.add("creatures", int(Time.get_ticks_usec() - perf_start))
 
 func _process(delta: float) -> void:
-	render_hitstop_timer = maxf(render_hitstop_timer - delta, 0.0)
-	if render_hitstop_timer > 0.0:
+	if render_hitstop_frames > 0:
+		render_hitstop_frames -= 1
 		_request_render_redraw()
 		return
+	render_counter_flash_timer = maxf(render_counter_flash_timer - delta, 0.0)
 	render_flash_timer = maxf(render_flash_timer - delta, 0.0)
 	render_shake_timer = maxf(render_shake_timer - delta, 0.0)
 	render_takeoff_flap_timer = maxf(render_takeoff_flap_timer - delta, 0.0)
@@ -300,6 +319,9 @@ func _process(delta: float) -> void:
 
 func tick_sim(delta: float) -> void:
 	if _match_is_over():
+		if kit != null and kit.has_method("tick_match_end"):
+			kit.tick_match_end(self, delta)
+		action_policy_suppressed_buttons = 0
 		return
 	if not alive:
 		if arena != null and arena.has_method("uses_stock_respawn") and arena.uses_stock_respawn(self):
@@ -314,6 +336,7 @@ func tick_sim(delta: float) -> void:
 	_tick_timers(delta)
 	if not alive or _match_is_over():
 		return
+	input_frame = filter_action_start_frame(input_frame)
 	_update_flight_toggle_edge()
 	flight_grounded_timer = maxf(flight_grounded_timer - delta, 0.0)
 	stealth_timer = maxf(stealth_timer - delta, 0.0)
@@ -339,20 +362,20 @@ func tick_sim(delta: float) -> void:
 	if not alive or _match_is_over():
 		return
 	if kit != null and kit.has_method("tick"):
-		var original_input_frame: Resource = input_frame
-		if input_frame != null and (
-			not can_use_abilities()
-			or primary_attack_timeline.blocks_abilities()
-		):
-			input_frame = _without_ability_buttons(input_frame)
 		kit.tick(self, delta)
-		input_frame = original_input_frame
 		if _match_is_over():
+			action_policy_suppressed_buttons = 0
 			return
 	_commit_flight_toggle_edge()
+	action_policy_suppressed_buttons = 0
 
 func _match_is_over() -> bool:
 	return arena != null and arena.get("match_over") == true
+
+func on_match_ended() -> void:
+	if kit != null and kit.has_method("tick_match_end"):
+		kit.tick_match_end(self, 0.0)
+	action_policy_suppressed_buttons = 0
 
 func take_damage(amount: float, _source_team: int = -1, _source_actor: Node = null) -> void:
 	var event := DamageEventScript.new()
@@ -364,8 +387,12 @@ func take_area_damage(amount: float, source_ability := "", source_actor: Node = 
 	event.setup(amount, DamageEventScript.DELIVERY_AREA, DamageEventScript.PLANE_GROUND, source_actor, source_ability)
 	take_damage_event(event)
 
-func begin_render_hitstop(duration := HITSTOP_SEC) -> void:
-	render_hitstop_timer = maxf(render_hitstop_timer, duration)
+func begin_render_hitstop(_duration := 0.0) -> void:
+	render_hitstop_frames = maxi(render_hitstop_frames, HITSTOP_FRAMES)
+	_request_render_redraw(true)
+
+func begin_render_counter_flash() -> void:
+	render_counter_flash_timer = COUNTER_FLASH_SEC
 	_request_render_redraw(true)
 
 func begin_counter_hit_window(duration: float) -> void:
@@ -430,7 +457,7 @@ func request_primary_attack(variant: String, payload: Dictionary, resolver: Call
 		or not resolver.is_valid():
 		return false
 
-	var timelines_value: Variant = creature_data.get("primary_attack_timelines", {})
+	var timelines_value: Variant = stats.get("action_timelines", {})
 	if typeof(timelines_value) != TYPE_DICTIONARY:
 		return false
 	var timeline_definitions: Dictionary = timelines_value
@@ -551,6 +578,67 @@ func update_primary_attack_presentation(
 func is_primary_attack_committed() -> bool:
 	return not primary_attack_timeline.is_idle()
 
+func get_authoritative_action_phase_records() -> Array[Dictionary]:
+	var records: Array[Dictionary] = []
+	var seen := {}
+	if is_primary_attack_committed():
+		var snapshot := get_primary_attack_snapshot()
+		var primary_record := {
+			"action_id": StringName(_primary_attack_variant),
+			"sequence_id": int(snapshot.get("attack_sequence_id", 0)),
+			"phase": StringName(snapshot.get("attack_phase_name", "")),
+			"counter_vulnerable": String(snapshot.get("attack_phase_name", "")) == "startup",
+		}
+		if not _append_valid_action_phase_record(records, seen, primary_record):
+			return []
+	if kit != null and kit.has_method("get_action_phase_records"):
+		var kit_records: Variant = kit.get_action_phase_records()
+		if typeof(kit_records) != TYPE_ARRAY:
+			return []
+		for record_value: Variant in kit_records:
+			if typeof(record_value) != TYPE_DICTIONARY \
+				or not _append_valid_action_phase_record(records, seen, record_value):
+				return []
+	records.sort_custom(_action_phase_record_before)
+	return records
+
+func _append_valid_action_phase_record(
+	records: Array[Dictionary],
+	seen: Dictionary,
+	record_value: Dictionary
+) -> bool:
+	var action_value: Variant = record_value.get("action_id", "")
+	var sequence_value: Variant = record_value.get("sequence_id", 0)
+	var phase_value: Variant = record_value.get("phase", "")
+	var counter_value: Variant = record_value.get("counter_vulnerable", null)
+	if (typeof(action_value) != TYPE_STRING and typeof(action_value) != TYPE_STRING_NAME) \
+		or String(action_value).is_empty() \
+		or typeof(sequence_value) != TYPE_INT \
+		or int(sequence_value) <= 0 \
+		or (typeof(phase_value) != TYPE_STRING and typeof(phase_value) != TYPE_STRING_NAME) \
+		or not ["startup", "active", "recovery", "channel", "exit"].has(String(phase_value)) \
+		or typeof(counter_value) != TYPE_BOOL \
+		or bool(counter_value) != (String(phase_value) == "startup"):
+		return false
+	var key := "%s:%d" % [String(action_value), int(sequence_value)]
+	if seen.has(key):
+		return false
+	seen[key] = true
+	records.append({
+		"action_id": StringName(action_value),
+		"sequence_id": int(sequence_value),
+		"phase": StringName(phase_value),
+		"counter_vulnerable": bool(counter_value),
+	})
+	return true
+
+func _action_phase_record_before(left: Dictionary, right: Dictionary) -> bool:
+	var left_id := String(left.get("action_id", ""))
+	var right_id := String(right.get("action_id", ""))
+	if left_id != right_id:
+		return left_id < right_id
+	return int(left.get("sequence_id", 0)) < int(right.get("sequence_id", 0))
+
 func primary_attack_has_phase_tag(tag: String) -> bool:
 	return primary_attack_timeline.has_phase_tag(tag)
 
@@ -590,7 +678,9 @@ func take_damage_event(event: Resource) -> void:
 	break_stealth()
 	var before_health := health
 	var amount: float = _modified_incoming_damage(event)
-	var counter_hit := counter_hit_window_timer > 0.0 and amount > 0.0
+	var counter_hit := amount > 0.0 \
+		and _is_valid_enemy_counter_source(event) \
+		and _is_counter_vulnerable()
 	if counter_hit:
 		amount *= COUNTER_HIT_MULT
 	amount = _apply_spore_ward_absorb(event, amount)
@@ -622,6 +712,7 @@ func take_damage_event(event: Resource) -> void:
 			if event.source_actor != null and is_instance_valid(event.source_actor) and event.source_actor.has_method("begin_render_hitstop"):
 				event.source_actor.begin_render_hitstop()
 		if counter_hit:
+			begin_render_counter_flash()
 			emit_vfx_event("counter_hit", {
 				"source": event.source_actor,
 				"target": self,
@@ -958,6 +1049,9 @@ func get_render_motion_state() -> Dictionary:
 	var height_shadow_alpha := _height_shadow_alpha(visual_height_units, low_window_t, airborne_visual)
 	var height_shadow_radius_mult := _height_shadow_radius_mult(visual_height_units, low_window_t, airborne_visual)
 	var timeline_snapshot: Dictionary = get_primary_attack_snapshot()
+	var render_attack_variant := String(timeline_snapshot["attack_variant"])
+	if render_attack_variant == "alligator_bite":
+		render_attack_variant = "bite"
 	return {
 		"creature_id": creature_id,
 		"terrain_surface": surface,
@@ -979,6 +1073,12 @@ func get_render_motion_state() -> Dictionary:
 		"contact_shadow_ellipse": bool(silhouette_contract.get("contact_shadow_ellipse", false)),
 		"open_hurtbox_regions": open_hurtbox_regions,
 		"open_region_visuals": not open_hurtbox_regions.is_empty(),
+		"counter_flash_t": clampf(
+			render_counter_flash_timer / COUNTER_FLASH_SEC,
+			0.0,
+			1.0
+		),
+		"counter_flash_color": COUNTER_FLASH_COLOR,
 		"low_window_model_scale_bonus": low_window_scale_bonus,
 		"air_attack_model_scale_bonus": air_attack_scale_bonus,
 		"air_attack_release_t": air_attack_release_t,
@@ -1084,7 +1184,7 @@ func get_render_motion_state() -> Dictionary:
 		"ambush_pose": _has_modifier_source("Ambush"),
 		"high_walk_pose": alligator_high_walk,
 		"off_balance_pose": creature_id == "alligator" \
-			and String(timeline_snapshot["attack_variant"]) == "bite" \
+			and String(timeline_snapshot["attack_variant"]) == "alligator_bite" \
 			and String(timeline_snapshot["attack_phase_name"]) == "recovery" \
 			and String(timeline_snapshot["attack_outcome_name"]) == "whiff",
 		"perched_pose": state == CreatureStateScript.State.PERCHED,
@@ -1122,7 +1222,7 @@ func get_render_motion_state() -> Dictionary:
 		"attack_active_tick": timeline_snapshot["attack_active_tick"],
 		"attack_outcome": timeline_snapshot["attack_outcome"],
 		"attack_outcome_name": timeline_snapshot["attack_outcome_name"],
-		"attack_variant": timeline_snapshot["attack_variant"],
+		"attack_variant": render_attack_variant,
 		"strike_heading": timeline_snapshot["strike_heading"],
 		"hit_count": timeline_snapshot["hit_count"],
 		"hit_region": timeline_snapshot["hit_region"],
@@ -1435,15 +1535,63 @@ func cleanse_negative_modifiers() -> void:
 func get_modifier_value(key: String, fallback: float) -> float:
 	return _modifier_value(key, fallback)
 
-func _without_ability_buttons(frame: Resource) -> Resource:
+func filter_action_start_frame(frame: Resource) -> Resource:
+	if frame == null:
+		return null
+	var mask := 0
+	if primary_attack_timeline.current_phase_name() == &"recovery" \
+		or _has_authoritative_kit_action_commitment():
+		mask = ACTION_START_BUTTONS
+	elif not can_use_abilities() or primary_attack_timeline.blocks_abilities():
+		mask = ABILITY_START_BUTTONS
+	if mask == 0:
+		return frame
+	return _without_action_buttons(frame, mask)
+
+func _has_authoritative_kit_action_commitment() -> bool:
+	if kit == null or not kit.has_method("get_action_phase_records"):
+		return false
+	return not kit.get_action_phase_records().is_empty()
+
+func was_action_start_suppressed_by_policy(button: int) -> bool:
+	return (action_policy_suppressed_buttons & button) != 0
+
+func _without_action_buttons(frame: Resource, mask: int) -> Resource:
 	var filtered := InputFrameScript.new()
 	filtered.move = frame.move
 	filtered.aim = frame.aim
 	filtered.buttons = int(frame.buttons)
 	filtered.suppressed_buttons = int(frame.suppressed_buttons)
-	filtered.set_button(InputFrameScript.BUTTON_ABILITY_Q, false)
-	filtered.set_button(InputFrameScript.BUTTON_ABILITY_E, false)
+	var held_starts := int(frame.buttons) & mask
+	action_policy_suppressed_buttons |= held_starts
+	filtered.buttons &= ~mask
+	filtered.suppressed_buttons |= held_starts
 	return filtered
+
+func _has_authoritative_action_phase_source() -> bool:
+	return is_primary_attack_committed() \
+		or (kit != null and kit.has_method("get_action_phase_records"))
+
+func _is_counter_vulnerable() -> bool:
+	if _has_authoritative_action_phase_source():
+		for record: Dictionary in get_authoritative_action_phase_records():
+			if bool(record.get("counter_vulnerable", false)):
+				return true
+		return false
+	return counter_hit_window_timer > 0.0
+
+func _is_valid_enemy_counter_source(event: Resource) -> bool:
+	if event == null:
+		return false
+	var source: Variant = event.source_actor
+	if source == null \
+		or not is_instance_valid(source) \
+		or source == self \
+		or not source.has_method("is_alive") \
+		or not source.is_alive():
+		return false
+	var source_team: Variant = source.get("team")
+	return typeof(source_team) == TYPE_INT and int(source_team) != team
 
 func _advance_primary_attack_timeline(delta: float) -> void:
 	if primary_attack_timeline.is_idle():
@@ -1606,6 +1754,7 @@ func attach_to_victim(victim: Node, duration: float, source_ability: String, exe
 		release_latch("relatch")
 	if victim.latched_attacker != null and is_instance_valid(victim.latched_attacker) and victim.latched_attacker != self:
 		victim.latched_attacker.release_latch("victim_stolen")
+	latch_sequence_id += 1
 	latch_victim = victim
 	latch_timer = duration
 	latch_source = source_ability
@@ -1627,6 +1776,7 @@ func receive_latch(attacker: Node, duration: float, source_ability: String) -> v
 	latch_move_multiplier = 0.45
 
 func release_latch(_reason: String) -> void:
+	var released_latch := latch_victim != null or latched_attacker != null
 	if latch_victim != null:
 		emit_vfx_event("latch_ended", {
 			"attacker": self,
@@ -1652,6 +1802,8 @@ func release_latch(_reason: String) -> void:
 	latch_move_multiplier = 1.0
 	if not is_airborne():
 		state = CreatureStateScript.State.NORMAL
+	if released_latch and kit != null and kit.has_method("on_latch_released"):
+		kit.on_latch_released(self, _reason)
 
 func has_latch() -> bool:
 	return latch_victim != null or latched_attacker != null
@@ -1903,7 +2055,8 @@ func _tick_latch(delta: float) -> void:
 		var victim_velocity: Vector2 = latch_victim.velocity
 		if victim_velocity.length() > 8.0 and victim_velocity.normalized().dot(drag_direction) < -0.3:
 			grip_drain = delta * 1.5
-		latch_timer = maxf(latch_timer - grip_drain, 0.0)
+		if latch_source != "Death Roll":
+			latch_timer = maxf(latch_timer - grip_drain, 0.0)
 		latch_victim.latch_timer = latch_timer
 		latch_execute_timer = maxf(latch_execute_timer - delta, 0.0)
 		if max_health > latch_victim.max_health:
@@ -2199,7 +2352,8 @@ func _render_signature() -> String:
 	parts.append(str(is_stealthed()))
 	parts.append(str(has_latch()))
 	parts.append(str(_quantized_ratio(latch_timer, 5.0, RENDER_RATIO_BUCKETS)))
-	parts.append(str(_timer_bucket(render_hitstop_timer, HITSTOP_SEC)))
+	parts.append(str(render_hitstop_frames))
+	parts.append(str(_timer_bucket(render_counter_flash_timer, COUNTER_FLASH_SEC)))
 	parts.append(str(_timer_bucket(render_flash_timer, 0.1)))
 	parts.append(str(_timer_bucket(render_shake_timer, 0.1)))
 	parts.append(str(_timer_bucket(render_takeoff_flap_timer, TAKEOFF_FLAP_TELL_SEC)))
