@@ -103,7 +103,10 @@ function Assert-NoReparsePoints {
 		[string]$Label
 	)
 	$fullPath = Get-FullPath $Path
-	$fullStop = (Get-FullPath $StopRoot).TrimEnd("\", "/")
+	$fullStop = Get-FullPath $StopRoot
+	if ($fullStop -ne [IO.Path]::GetPathRoot($fullStop)) {
+		$fullStop = $fullStop.TrimEnd("\", "/")
+	}
 	Assert-UnderRoot $fullPath $fullStop $Label -AllowRoot
 	$current = $fullPath
 	while ($true) {

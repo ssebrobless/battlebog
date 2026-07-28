@@ -91,7 +91,10 @@ function Assert-SafeId {
 function Assert-NoReparsePoints {
 	param([string]$Path, [string]$StopAt, [string]$Label)
 	$full = [IO.Path]::GetFullPath($Path)
-	$stop = [IO.Path]::GetFullPath($StopAt).TrimEnd("\", "/")
+	$stop = [IO.Path]::GetFullPath($StopAt)
+	if ($stop -ne [IO.Path]::GetPathRoot($stop)) {
+		$stop = $stop.TrimEnd("\", "/")
+	}
 	$current = $full
 	while ($true) {
 		if (Test-Path -LiteralPath $current) {
