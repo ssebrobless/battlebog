@@ -905,7 +905,7 @@ Every row is additional to the universal Definition of Done.
 | Water Snake | head-led land slither/swim, coil, drag direction, Musking and ingestion | swimming evidence strong proxy |
 | Bog Turtle | creep, paddle, shore transition, bask attachment, flowers and Umbrella mount | `RESEARCH` paddle/transition open |
 | Alligator | rest, high walk, turn, reverse, shore, swim, Ambush, Bite outcomes, latch, Death Roll and death | walk evidence strong; implementation pilot |
-| Owl | perch, takeoff, glide, silent state, swoop, impact, low window, braking and landing | strike chain strong; `RESEARCH` playable species and ordinary post-strike recovery open |
+| Owl | Great Horned Owl perch, takeoff, glide, silent state, swoop, impact, low window, braking and landing | identity locked; `RESEARCH` exact-species ordinary post-strike recovery open |
 | Great Blue Heron | stalk, wade, planted coil, spear release/recoil, Powder Puff and Flushing | exact-species fixed-rate strike sequence available |
 | Kingfisher | perch, hover/head lock, dive corridor, descent, submerge, emerge, reset and nest | exact-species state order strong; `RESEARCH` frame timing remains open |
 | Duck | waddle, paddle, takeoff, alternating primary, nesting, ducklings and Mobbing | paddling evidence strong |
@@ -930,20 +930,20 @@ fallback. It blocks only the named final animation brief or asset gate.
 | Bog Turtle gait/shore | overhead walk on firm and saturated substrate, underwater paddle, continuous approach-to-float-to-paddle shot | research lane | final Bog Turtle V3 gait and shoreline animation |
 | Beaver loaded turn | species-confirmed North American beaver pickup, carried-object turn, obstacle clearance, release and recovery | research lane | carried-object portion of Beaver V4; base swim turn may proceed |
 | Kingfisher phase duration | high-frame-rate Belted Kingfisher perch/hover/plunge/submerge/emerge/reperch chain with stable frame rate | research lane | final V1 dive animation timing; state order may proceed |
-| Owl identity/recovery | user confirms playable species; fixed-camera strike through ordinary landing or lift-off | user identity gate plus research lane | final Owl anatomy and V2 recovery brief |
+| Owl recovery | Great Horned Owl identity locked; fixed-camera exact-species strike through ordinary landing or lift-off | research lane | final Owl V2 recovery brief |
 | Wolf Spider burrow ambush | verified Lycosidae, natural prey trigger, concealment, emergence, contact or miss and retreat/reset | research lane | final V5 burrow-attack motion; ground pounce may proceed |
 | Medicinal Leech transition | exact species, visible front/rear suckers, last dual anchor, rear release, separation and first complete traveling wave; reverse transition too | research lane | final Leech V5 crawl/swim transition |
 
-`HUMAN GATE - Owl species identity:` gameplay migration and procedural evidence
-may proceed with generic Owl. Final silhouette, authored motion and production
-assets cannot begin until the playable species is selected and recorded in
-roster data and the research ledger.
+`RESOLVED HUMAN GATE - Owl species identity (R14A, 2026-07-28):` Great Horned
+Owl (`Bubo virginianus`). Final anatomy uses that species only. Great Gray,
+Barn and Barred Owl evidence may inform shared owl function, never anatomy.
 
-`HUMAN GATE - Otter pack identity:` primary/latch infrastructure and
-procedural evidence may proceed. Final Gang Up behavior and Otter production
-cannot complete until the three-body cohort range, follower travel/teleport,
-individual health and control-transfer rules are selected and recorded in
-`BATTLE_BOG_DAMAGING_ACTION_INVENTORY.md`.
+`RESOLVED HUMAN GATE - Otter pack identity (R4H, 2026-07-28):` North American
+River Otter (`Lontra canadensis`), three independently targetable 300 HP bodies,
+one shared stock lost only after all three bodies fall, no mid-stock body
+respawn, `6 u` legal Gang Up route, visible pounce and hidden technical rescue
+only. The normative detailed contract is in
+`BATTLE_BOG_DAMAGING_ACTION_INVENTORY.md` and roster data.
 
 ## Shared Scenario Catalog
 

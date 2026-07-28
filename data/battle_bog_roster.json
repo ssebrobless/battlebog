@@ -200,6 +200,8 @@
     {
       "id": "owl",
       "name": "Owl",
+      "species_common_name": "Great Horned Owl",
+      "species_scientific_name": "Bubo virginianus",
       "family": "bird",
       "movement": ["ground_walker", "flight", "perch"],
       "role": ["aerial_assassin", "scout"],
@@ -305,18 +307,66 @@
     {
       "id": "otter",
       "name": "Otter",
+      "species_common_name": "North American River Otter",
+      "species_scientific_name": "Lontra canadensis",
       "family": "mammal",
       "movement": ["semi_aquatic", "pack"],
       "role": ["pack_latcher", "skirmisher"],
       "diet": "carnivore",
       "footprint": {"shape": "circle", "radius_units": 0.6},
-      "stats": {"health": 300, "ground_speed": 1.5, "swim_time_sec": 13, "regen_per_sec": 18, "primary_damage": 25, "range": "1 unit"},
+      "stats": {"health": 300, "health_scope": "per_body", "ground_speed": 1.5, "swim_time_sec": 13, "regen_per_sec": 18, "primary_damage": 25, "range": "1 unit"},
       "primary": "Bite and latch up to 2 seconds before being thrown off.",
       "abilities": [
         {"slot": "Q", "name": "Tail Whip", "summary": "Alternating back-to-front tail arc hits multiple targets and knocks back 1.5 units.", "cooldown_sec": 5},
-        {"slot": "E", "name": "Gang Up", "summary": "Next hit makes all otters latch to the target, deal damage, and immobilize for 2s."}
+        {"slot": "E", "name": "Gang Up", "summary": "Arm the next valid latchable Bite. If every living otter is free and has a legal route of at most 6 units to the target, all living otters visibly pounce, deal 25 damage each, and latch for up to 2 seconds. Each attached otter slows 25%, capped at 75%; the victim is never rooted.", "cooldown_after_valid_hit_sec": 6}
       ],
-      "passives": [{"name": "Pack of 3", "summary": "Player controls leader plus 2 followers. Control swaps to unlatched otter after latch. Latched otters take 20% less damage and slow target 25% each."}]
+      "passives": [{"name": "Pack of 3", "summary": "One competitive slot fields 3 independently targetable 300 HP otters. Control transfers to the nearest living unlatched body after a latch or focused-body defeat. One stock is lost only when all 3 bodies are defeated; the full pack then respawns together."}],
+      "pack_contract": {
+        "body_count": 3,
+        "health_per_body": 300,
+        "stock_loss": "when_all_bodies_are_defeated",
+        "partial_body_respawn": "none",
+        "shared_state": ["stock", "hunger", "macro_order", "deposit", "breeding", "ability_cooldowns", "gang_up_arm"],
+        "body_local_state": ["health", "position", "movement_medium", "primary_cadence", "modifiers", "damage_over_time", "latch"],
+        "follower_autonomy": {
+          "formation_and_regroup": true,
+          "ordinary_attacks": false,
+          "harvest": false,
+          "contest_or_capture": false,
+          "independent_vision": false
+        },
+        "formation": {
+          "preferred_distance_units": {"min": 1.8, "max": 3.6},
+          "soft_leash_units": 4.0,
+          "catch_up_speed_multiplier": 1.25
+        },
+        "hidden_rescue": {
+          "distance_units": 12.0,
+          "stuck_duration_sec": 1.5,
+          "out_of_combat_sec": 3.0,
+          "requires_hidden_from_both_teams": true,
+          "forbidden_during_attack_or_latch": true
+        },
+        "gang_up": {
+          "minimum_living_participants": 2,
+          "requires_every_living_body_free": true,
+          "maximum_legal_route_units": 6.0,
+          "visible_pounce_max_sec": 0.3,
+          "combat_teleport": false,
+          "damage_per_body": 25,
+          "slow_per_attached_body": 0.25,
+          "maximum_slow": 0.75,
+          "maximum_latch_sec": 2.0,
+          "victim_immobilized": false,
+          "arm_persists_on_whiff_interruption_or_invalid_target": true
+        },
+        "control_transfer": {
+          "timing": "next_fixed_tick",
+          "selection": "nearest_living_unlatched_then_stable_body_id",
+          "suppress_action_input_during_transfer_tick": true,
+          "preserve_state_on_external_squad_switch": true
+        }
+      }
     },
     {
       "id": "mink",

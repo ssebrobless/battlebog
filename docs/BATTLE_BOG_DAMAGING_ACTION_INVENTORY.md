@@ -372,7 +372,7 @@ named migrations, not deliberate kit exceptions.
 | Alligator Death Roll | `CH 0.35/continuous/0.40/0.55`; duration 5 s | require valid latch and both actors in water; root ordinary actions; deterministic 30 DPS; preserve rotational movement; 5 s cooldown at acceptance; release latch on completion/interruption |
 | Water Shrew empowered Bite | `ARM 0.10/0.04/0.15/0.20`; inherit Bite | arm reserves charge; persists through whiff/suppression; spend charge and start 3 s recharge only on valid hit; clear on death/respawn |
 | Otter ordinary latch | child of Bite active; hold 2 s | first latchable target; no hold DPS; general struggle; invalid target produces ordinary hit recovery |
-| Otter Gang Up | `ARM 0.15/0.04/0.20/0.25`; inherit Bite | persist through whiff/interruption; consume only on valid latchable hit; immobilize target 2 s; final cohort behavior waits on the Otter identity gate below |
+| Otter Gang Up | `ARM 0.15/0.04/0.20/0.25`; inherit Bite | persist through whiff/interruption; consume only when every living body is free and at least two have a legal route `<=6 u`; visible cohort pounce `<=0.30 s`; 25 damage and 25% slow per attached body, 75% slow cap, never root; maximum 2 s |
 | Mink Choke execute | 10 s latch countdown; active `0.06`; break exit `0.35`; success recovery `0.60` | generic Creature latch owns only grip/lifecycle; `mink.gd::_tick_choke_channel` owns countdown/execute; visible 10/5/3/1 s checkpoints; death only at zero; grip break cancels; 10 s cooldown after release |
 
 ### Spawned Children And Fields
@@ -393,11 +393,33 @@ Preserve the current repeatedly stacking Cane Toad Stream DOT and independent
 Mosquito-field damage through migration. Measure both as explicit balance
 anomalies in PvAI stages before changing values.
 
-`HUMAN GATE - Otter pack identity:` roster intent says Gang Up sends all three
-otters, while current code has only the attacker. Simulation migration may
-proceed for Bite, Tail Whip, latch timing and the armed-state contract, but
-Gang Up cohort range, follower travel/teleport rules, individual health and
-control transfer must be selected before final Otter combat and assets.
+`RESOLVED HUMAN GATE - Otter pack identity (R4H, 2026-07-28):` one Otter slot
+fields three independently targetable 300 HP North American River Otters.
+One stock ends only when all three bodies are defeated; partial bodies remain
+down until the full-pack stock respawn. Pack-shared state is stock, hunger,
+macro orders, deposits, breeding, cooldowns and Gang Up arm state. HP,
+position, movement medium, modifiers and latch state are body-local.
+
+Followers maintain a loose `1.8-3.6 u` formation, enter deterministic catch-up
+beyond `4 u` at `1.25x` travel speed and do not independently attack, harvest,
+contest or reveal. They never teleport for combat. A hidden rescue relocation
+is permitted only beyond `12 u`, after `1.5 s` without path progress and `3 s`
+out of combat, while hidden from both teams and outside any attack/latch.
+
+Gang Up remains armed through whiff, interruption and invalid contact. It
+consumes only when a valid Bite finds at least two living participants and
+every living body is free with a legal route of at most `6 u` to the target.
+Participants use visible pounce travel capped at `0.30 s`, deal `25` once each
+and latch for at most `2 s`. Each attached body applies `25%` slow, capped at
+`75%`; Gang Up never roots the victim. Decision #33 damage and struggle rules
+apply. Internal control transfers on the next fixed tick to the nearest living
+unlatched body, using stable body ID as the tie-break and suppressing action
+input for that transfer tick. External squad switching preserves all cohort
+state and position.
+
+The legacy one-body Wave 4 Otter check still records the pre-R4F.1 prototype
+root. R4F.1 must replace that assertion with the resolved three-body slow and
+control-transfer contract; the prototype check is not design authority.
 
 ## Policies Locked By Existing Text Or Behavior
 

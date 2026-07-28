@@ -59,7 +59,7 @@ Terrain specialist     Beaver · Owl · Heron · Water Snake · Crayfish
 | --- | --- | --- | --- | --- | --- |
 | Water Shrew | Tiny speed debuffer | Bite, 8 dmg, stacking move/damage/vulnerability debuff | Water Walk: 35% speed and water-running while moving | Proenkephalin A: next bite roots/silences 1s, 2 charges | Aquatic Locomotion |
 | Beaver | Builder frontline support | Chomp, 50 dmg | Tail Slap: allies in 8 radius gain 15% DR; repairs dams | Dam: place up to 3 cover walls, rotate with R | Gnawing: bite trees to heal 5% |
-| Otter | Three-body latch pack | Bite latch, 25 dmg | Tail Whip: multi-hit knockback arc | Gang Up: all otters latch and immobilize | Pack of 3; control swaps to unlatched otter; pack respawns |
+| Otter | Three-body latch pack | Bite latch, 25 dmg | Tail Whip: multi-hit knockback arc | Gang Up: living pack visibly pounces, latches and stacks 25% slow each | Pack of 3; individual 300 HP bodies, shared stock, control swaps to an unlatched otter |
 | Mink | Anti-tank assassin | Bite, 20 dmg | Choke: dash latch, 10s suffocation threat | Scent Marking: ally DR/damage buff, enemy heal reduction | Fearless: better into higher-HP targets |
 
 ## Crawlies
@@ -113,4 +113,3 @@ and `docs/BATTLE_BOG_DECISIONS.md`:
 | Habitat stat boosts | Per-family buff table (see decisions doc #8). |
 | Reproduction rates/caps | Uniform 45s breed timer; cap 6 stacks/team, max 3 per family. |
 | Model footprint | Per-creature `footprint` field (circles; capsules for Water Snake and Alligator). |
-

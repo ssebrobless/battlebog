@@ -70,11 +70,11 @@ their group envelope.
 | Alligator | Low walk for ordinary travel, semi-erect high walk for purpose, tail-led traveling wave in water | Low ambush posture, committed body lift and non-rigid long-body turns |
 | Water Snake | Head-led path with growing posterior amplitude | Spine follows the traveled path; it never points instantly at the cursor |
 | Mink | Elastic land bounds; comparatively stable trunk and strong alternating paddle in water | Needle-like bounds on land, controlled but effortful water chase |
-| Otter | Land lope or bound with slides; limb paddling and dorsoventral body-tail undulation in water | Playful elastic pack motion with water rolls and slides |
+| Otter | North American River Otter: land lope or bound with slides; limb paddling and dorsoventral body-tail undulation in water | Loose three-body formation, asymmetric pursuit, visible separation/reunion, water rolls and slides |
 | Beaver | Lumbering land gait; steady surface silhouette with propulsion mostly hidden below | Heavy trundle on land, competent quiet water travel |
 | Water Shrew | Extremely fast staccato scurry, surface sprint and sudden dive | Tiny high-frequency skimmer; warning comes from sensory lock before the real fast strike |
 | Great Blue Heron | Slow body-stable stalking; S-neck compresses while torso remains planted; head and bill release abruptly | Patient planted spear-wader with neck-owned aim |
-| Owl | Broad restrained wingbeats and long glides | Quiet aerial assassin; trajectory, talons and shadow carry dive intent |
+| Owl | Great Horned Owl: stiff deep beats of broad rounded wings, quiet glides, perch launch and feet-first strike | Heavy quiet aerial assassin; trajectory, wing flare, talons and shadow carry dive intent |
 | Duck | Waddle, buoyant drift and concealed foot paddling | Comfortable generalist with a distinct run-and-lift takeoff |
 | Kingfisher | Perch or hover, head lock, body alignment, committed plunge, splash and emergence | Twitchy precision diver with a readable full dive chain |
 | Crayfish | Side-biased scuttle, independent claw display and prepared tail escape | Confident lateral motion followed by earned explosive reverse |
@@ -255,8 +255,8 @@ owl strike mechanics    heron strike sequence   complete kingfisher dive chain
   frog surface-skitter remains a biomechanical proxy only.
 - Prior Battle Bog research uses Belted Kingfisher as its leading species.
   Wave 3 verifies the state order but leaves high-speed phase timing open.
-- Wave 3 adds a clean owl strike chain; playable species and ordinary
-  post-strike landing/lift remain open.
+- Great Horned Owl is locked as the playable species. Exact-species ordinary
+  post-strike landing/lift footage remains open.
 - Scientific wolf-spider footage covers excavation rather than prey ambush.
   Unverified reposts must not become animation evidence.
 
@@ -272,11 +272,14 @@ wildlife footage defines Battle Bog balance timing.
   return/process`. The source validates state order, not frame duration. The
   animation brief remains `PERCH_LOCK -> TAKEOFF/AIM_HOVER -> DIVE_COMMIT ->
   WATER_ENTRY -> SUBMERGED -> EMERGE -> RESET/REPERCH`.
-- Great Gray Owl high-speed evidence separates glide, braking/turning, brief
-  hover, near-vertical descent, pre-impact leg thrust and wing-braced settle.
-  This supports `GLIDE_ACQUIRE -> BRAKE/TURN -> OVERHEAD_DESCENT ->
-  FEET_FIRST_HIT -> WING_BRACED_SETTLE -> LAND/LIFT`. The playable owl species
-  must be confirmed before final anatomy or motion is authored.
+- Great Horned Owl is the anatomy and ordinary-motion authority: broad rounded
+  wings, stiff deep beats, blunt silhouette, prominent feather tufts and
+  feet-first attack. Cornell references:
+  https://www.allaboutbirds.org/guide/great_horned_owl/id and
+  https://www.allaboutbirds.org/guide/Great_Horned_Owl/lifehistory.
+- Great Gray Owl high-speed evidence may still separate glide,
+  braking/turning, pre-impact leg thrust and wing-braced settle as shared owl
+  mechanics. It cannot contribute anatomy, proportions, plumage or identity.
 - Great Blue Heron fixed-rate footage supports a planted S-neck load, rapid bill
   release, water contact, wing-assisted recoil and S-neck reset. A useful
   reference window is approximately `57.5-59.8`, but its timing must not be
