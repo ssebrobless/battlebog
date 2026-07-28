@@ -23,6 +23,7 @@
     "contact_truth",
     "terrain",
     "depth",
+    "critical_regions_px",
     "named_anchors",
     "diagnostic_labels",
     "screenshot_readback_count",
@@ -84,6 +85,26 @@
         "height_units": { "type": "number", "minimum": 0 }
       }
     },
+    "critical_regions_px": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body", "contact", "telegraph"],
+      "properties": {
+        "body": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/pixelRect" }
+        },
+        "contact": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pixelRect" }
+        },
+        "telegraph": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pixelRect" }
+        }
+      }
+    },
     "named_anchors": {
       "type": "object",
       "additionalProperties": { "type": "integer", "minimum": 0 }
@@ -102,5 +123,18 @@
     },
     "png_sha256": { "type": "string" },
     "runtime": { "type": "object" }
+  },
+  "$defs": {
+    "pixelRect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    }
   }
 }

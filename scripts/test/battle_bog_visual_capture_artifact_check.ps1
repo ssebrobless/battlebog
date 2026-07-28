@@ -115,10 +115,25 @@ function Assert-JsonSchemaValue {
 	param(
 		[AllowNull()][object]$Value,
 		[object]$Schema,
-		[string]$Path
+		[string]$Path,
+		[object]$RootSchema = $null
 	)
+	if ($null -eq $RootSchema) {
+		$RootSchema = $Schema
+	}
 	if (-not (Test-JsonObject $Schema)) {
 		throw "$Path schema node must be an object."
+	}
+	if (Test-Property $Schema '$ref') {
+		$reference = [string]$Schema.'$ref'
+		if (-not $reference.StartsWith("#/`$defs/")) {
+			throw "$Path schema uses unsupported reference '$reference'."
+		}
+		$definitionName = $reference.Substring(8)
+		$definitions = Require-Property $RootSchema '$defs' "root schema"
+		$definition = Require-Property $definitions $definitionName "root schema.`$defs"
+		Assert-JsonSchemaValue $Value $definition $Path $RootSchema
+		return
 	}
 	if (Test-Property $Schema "const") {
 		$expectedJson = $Schema.const | ConvertTo-Json -Compress -Depth 100
@@ -168,11 +183,26 @@ function Assert-JsonSchemaValue {
 					$null
 				}
 				if ($null -ne $propertySchema) {
-					Assert-JsonSchemaValue $property.Value $propertySchema.Value "$Path.$($property.Name)"
+					Assert-JsonSchemaValue $property.Value $propertySchema.Value "$Path.$($property.Name)" $RootSchema
 				} elseif ($additional -eq $false) {
 					throw "$Path contains additional property '$($property.Name)'."
 				} elseif (Test-JsonObject $additional) {
-					Assert-JsonSchemaValue $property.Value $additional "$Path.$($property.Name)"
+					Assert-JsonSchemaValue $property.Value $additional "$Path.$($property.Name)" $RootSchema
+				}
+			}
+		}
+		"array" {
+			if ($Value -isnot [System.Array]) {
+				throw "$Path must be a JSON array."
+			}
+			$values = @($Value)
+			if ((Test-Property $Schema "minItems") -and
+				$values.Count -lt [int]$Schema.minItems) {
+				throw "$Path has fewer items than schema minItems."
+			}
+			if (Test-Property $Schema "items") {
+				for ($index = 0; $index -lt $values.Count; $index++) {
+					Assert-JsonSchemaValue $values[$index] $Schema.items "$Path[$index]" $RootSchema
 				}
 			}
 		}
@@ -371,7 +401,7 @@ foreach ($file in $semanticFiles) {
 	$filenameFrame = [int64]$Matches.frame
 	$state = Read-JsonFile $file.FullName "Semantic capture"
 	$pathLabel = $file.Name
-	Assert-JsonSchemaValue $state $semanticSchemaData $pathLabel
+	Assert-JsonSchemaValue $state $semanticSchemaData $pathLabel $semanticSchemaData
 	foreach ($requiredName in $schemaRequired) {
 		$null = Require-Property $state $requiredName $pathLabel
 	}
@@ -408,6 +438,25 @@ foreach ($file in $semanticFiles) {
 	$depth = Require-Property $state "depth" $pathLabel
 	if ($depth -isnot [pscustomobject]) {
 		throw "$pathLabel.depth must be a JSON object."
+	}
+	$criticalRegions = Require-Property $state "critical_regions_px" $pathLabel
+	$regionCount = 0
+	foreach ($regionKind in @("body", "contact", "telegraph")) {
+		$regions = @(Require-Property $criticalRegions $regionKind "$pathLabel.critical_regions_px")
+		foreach ($region in $regions) {
+			$x = Require-Integer $region "x" "$pathLabel.critical_regions_px.$regionKind"
+			$y = Require-Integer $region "y" "$pathLabel.critical_regions_px.$regionKind"
+			$width = Require-Integer $region "width" "$pathLabel.critical_regions_px.$regionKind"
+			$height = Require-Integer $region "height" "$pathLabel.critical_regions_px.$regionKind"
+			if ($width -lt 1 -or $height -lt 1 -or $x -lt 0 -or $y -lt 0 -or
+				$x + $width -gt $expectedWidth -or $y + $height -gt $expectedHeight) {
+				throw "$pathLabel critical region '$regionKind' is empty or outside the viewport."
+			}
+			$regionCount++
+		}
+	}
+	if ($regionCount -eq 0) {
+		throw "$pathLabel has an empty critical region union."
 	}
 	if ($phase -notin @("idle", "startup", "active", "recovery")) {
 		throw "$pathLabel.phase is outside the closed vocabulary."

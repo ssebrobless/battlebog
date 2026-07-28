@@ -19,11 +19,15 @@ var _clock_state := {
 var _capture_mode := "Diagnostic"
 var _input_applied := false
 var _last_applied_frame := -1
+var _viewport_width := 0
+var _viewport_height := 0
 
 
 func configure(context: Dictionary) -> void:
 	_arena = context.get("arena")
 	_capture_mode = String(context.get("capture_mode", "Diagnostic"))
+	_viewport_width = int(context.get("viewport_width", 0))
+	_viewport_height = int(context.get("viewport_height", 0))
 	if _arena == null:
 		return
 	_actor = _arena.get("player")
@@ -93,8 +97,72 @@ func get_capture_state() -> Dictionary:
 			"elevation_state": elevation_state,
 			"height_units": height_units,
 		},
+		"critical_regions_px": {
+			"body": [_actor_body_rect(snapshot)],
+			"contact": [],
+			"telegraph": [],
+		},
 		"diagnostic_labels": _capture_mode == "Diagnostic",
 		"input_frame_applied": _input_applied,
+	}
+
+
+func _actor_body_rect(snapshot: Dictionary) -> Dictionary:
+	if _actor == null or not is_instance_valid(_actor) or not _actor is Node2D:
+		return {}
+	var canvas_transform := (_actor as Node2D).get_global_transform_with_canvas()
+	var center := canvas_transform * Vector2.ZERO
+	var legacy_cues: Dictionary = snapshot.get("kit_cues", {}).get(
+		"legacy_motion_state",
+		{}
+	)
+	var body_radius := float(snapshot.get("body_radius_px", 0.0))
+	var visual_radius := float(snapshot.get("visual_radius_px", body_radius))
+	var long_extent := maxf(
+		visual_radius,
+		float(snapshot.get("capsule_half_length_px", 0.0)) + body_radius
+	)
+	long_extent = maxf(
+		long_extent,
+		float(legacy_cues.get("long_body_visual_length_px", 0.0)) * 0.5
+	)
+	long_extent = maxf(
+		long_extent,
+		float(legacy_cues.get("footprint_length_px", 0.0)) * 0.5
+	)
+	var side_extent := maxf(
+		visual_radius,
+		float(legacy_cues.get("thin_overhang_radius_px", 0.0))
+	)
+	# Procedural appendages can exceed the core metrics slightly.
+	long_extent *= 1.25
+	side_extent *= 1.25
+	var heading_values: Array = snapshot.get("body_heading", [1.0, 0.0])
+	var heading := Vector2.RIGHT
+	if heading_values.size() == 2:
+		heading = Vector2(float(heading_values[0]), float(heading_values[1])).normalized()
+	if heading.is_zero_approx():
+		heading = Vector2.RIGHT
+	var side := heading.orthogonal()
+	var screen_forward := (canvas_transform * heading) - center
+	var screen_side := (canvas_transform * side) - center
+	var radius_x := (
+		absf(screen_forward.x) * long_extent
+		+ absf(screen_side.x) * side_extent
+	)
+	var radius_y := (
+		absf(screen_forward.y) * long_extent
+		+ absf(screen_side.y) * side_extent
+	)
+	var left := clampi(int(floor(center.x - radius_x)), 0, _viewport_width)
+	var top := clampi(int(floor(center.y - radius_y)), 0, _viewport_height)
+	var right := clampi(int(ceil(center.x + radius_x)), 0, _viewport_width)
+	var bottom := clampi(int(ceil(center.y + radius_y)), 0, _viewport_height)
+	return {
+		"x": left,
+		"y": top,
+		"width": right - left,
+		"height": bottom - top,
 	}
 
 

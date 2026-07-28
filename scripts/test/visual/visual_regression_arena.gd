@@ -516,6 +516,7 @@ func _write_capture(
 		"contact_truth": semantic["contact_truth"],
 		"terrain": semantic["terrain"],
 		"depth": semantic["depth"],
+		"critical_regions_px": semantic["critical_regions_px"],
 		"named_anchors": semantic["named_anchors"],
 		"diagnostic_labels": semantic["diagnostic_labels"],
 		"screenshot_readback_count": screenshot_readback_count,
@@ -619,6 +620,7 @@ func _semantic_state(
 			"depth",
 			{"elevation_state": "ground", "height_units": 0.0}
 		),
+		"critical_regions_px": scenario_state.get("critical_regions_px", {}),
 		"named_anchors": scenario.get("_named_anchors", {}).duplicate(true),
 		"diagnostic_labels": bool(scenario_state.get("diagnostic_labels", false)),
 		"screenshot_readback_count": screenshot_readback_count,
@@ -636,12 +638,15 @@ func _validate_semantic_state(state: Dictionary) -> String:
 	var required := [
 		"action_id", "actor_id", "target_id", "snapshot", "phase", "outcome",
 		"projected_contact", "contact_truth", "terrain", "depth", "named_anchors",
+		"critical_regions_px",
 	]
 	for key in required:
 		if not state.has(key):
 			return "missing '%s'" % key
 	if not state["snapshot"] is Dictionary:
 		return "snapshot must be an object"
+	if not state["critical_regions_px"] is Dictionary:
+		return "critical_regions_px must be an object"
 	if not String(state["phase"]) in ["idle", "startup", "active", "recovery"]:
 		return "phase is outside the closed vocabulary"
 	if not String(state["outcome"]) in ["none", "hit", "whiff", "released", "interrupted"]:

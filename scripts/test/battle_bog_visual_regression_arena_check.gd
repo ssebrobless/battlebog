@@ -105,6 +105,7 @@ func _check_semantic_schema() -> void:
 		"scenario_id", "action_id", "seed", "camera_preset", "capture_mode",
 		"frame", "tick", "actor_id", "target_id", "snapshot", "phase", "outcome",
 		"projected_contact", "contact_truth", "terrain", "depth", "named_anchors",
+		"critical_regions_px",
 	]:
 		_expect(required.has(field), "Semantic schema is missing required field '%s'." % field)
 	var snapshot_schema: Dictionary = parsed.get("properties", {}).get("snapshot", {})
@@ -114,6 +115,19 @@ func _check_semantic_schema() -> void:
 			snapshot_required.has(field),
 			"Semantic schema snapshot is missing canonical field '%s'." % field
 		)
+	var critical_schema: Dictionary = parsed.get("properties", {}).get(
+		"critical_regions_px",
+		{}
+	)
+	_expect(
+		critical_schema.get("additionalProperties", true) == false,
+		"Critical-region schema must be closed."
+	)
+	var body_schema: Dictionary = critical_schema.get("properties", {}).get("body", {})
+	_expect(
+		int(body_schema.get("minItems", 0)) == 1,
+		"Critical-region body array must require at least one rectangle."
+	)
 
 
 func _check_fixture_scene() -> void:
@@ -152,7 +166,10 @@ func _check_runtime_contract_source() -> void:
 	)
 	_expect(
 		neutral_source.contains("InputFrameScript.new()") \
-			and neutral_source.contains("get_presentation_snapshot()"),
+			and neutral_source.contains("get_presentation_snapshot()") \
+			and neutral_source.contains("get_global_transform_with_canvas()") \
+			and neutral_source.contains("long_body_visual_length_px") \
+			and neutral_source.contains("\"critical_regions_px\""),
 		"Real neutral scenario must apply InputFrame and export a Creature snapshot."
 	)
 
