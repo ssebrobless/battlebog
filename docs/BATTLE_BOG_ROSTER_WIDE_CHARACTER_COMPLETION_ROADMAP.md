@@ -2,7 +2,11 @@
 
 Status: planning source of truth for completing all 21 playable creatures
 
-Checkpoint: `9e211c8` on `master`
+Minimum planning ancestor: `710b5d4`
+
+Required execution tag: `battle-bog-roster-plan-v2`
+
+Historical R0 implementation checkpoint: `9e211c8`
 
 Compiled: 2026-07-28
 
@@ -55,6 +59,7 @@ remain authoritative in:
 - `docs/BATTLE_BOG_DECISIONS.md`
 - `docs/BATTLE_BOG_PVAI_BALANCE_AND_PLAYTEST_PLAN.md`
 - `docs/BATTLE_BOG_DAMAGING_ACTION_INVENTORY.md`
+- `docs/BATTLE_BOG_WEAK_MODEL_EXECUTION_RUNBOOK.md`
 - `docs/BATTLE_BOG_ORDINARY_ATTACK_TIMELINE_SPEC.md`
 - `docs/BATTLE_BOG_COMBAT_READABILITY_CONSTITUTION.md`
 - `docs/BATTLE_BOG_CREATURE_SILHOUETTE_AND_SCALE_CONSTITUTION.md`
@@ -76,6 +81,12 @@ Labels:
 
 Prototype timing is not a balance promise. It prevents implementers from
 inventing timing independently while retaining one later tuning gate.
+
+The runbook is normative for checkout safety, phase inputs, write sets,
+commands, artifacts, failure routing, checkpoint state and human-gate resume
+rules. The historical R0 SHA is evidence only. Never check it out, reset to it
+or treat it as the execution branch. Execution always starts from the current
+clean branch head after proving `battle-bog-roster-plan-v2` is an ancestor.
 
 ## Program Shape
 
@@ -230,6 +241,12 @@ review/promotion.json     stage, build/rules fingerprints, reviewer, decision
 `promote` unlocks the next command. Never reuse an output root after gameplay
 or build identity changes.
 
+Every non-pass follows the fail-closed triage and invalidation rules in
+`BATTLE_BOG_WEAK_MODEL_EXECUTION_RUNBOOK.md`. A wall-clock or harness timeout is
+a failed command. A balance simulation whose result status is `timeout` is
+valid unresolved-match evidence and remains in all required denominators; it
+is not a completed match.
+
 ## One-Time Infrastructure
 
 These tasks are implemented once and reused by the roster.
@@ -273,7 +290,8 @@ against Decisions #23-26. Before split-step or roster migration:
    damage without pausing simulation.
 
 Focused tests must prove recovery lock for primary/Q/E/context inputs, exact
-refund derivation, startup-only counter hits, interruption cleanup, distinct
+hit-recovery derivation from `whiff_recovery_sec * 0.60`, startup-only counter
+hits, interruption cleanup, distinct
 counter feedback, render-only hitstop and unchanged deterministic sim state.
 Use zero cooldowns to prove suppressed starts while already-running Death Roll
 and latch continuation still function.
@@ -305,6 +323,26 @@ Implementation packet:
    exit and `0.55 s` interrupted exit as `PROTOTYPE` values.
 8. Update the diagnostic Alligator reel and render signatures that currently
    duplicate `0.40` hit recovery or second-based hitstop.
+9. Add `recovery_allows_dash_cancel: bool` to normalized timeline policy with
+   default `false`. No R0.5 or R4 action sets it true.
+10. Treat an enemy source as a valid, live `source_actor` whose actor differs
+    from the victim and whose team differs from the victim. Children preserve
+    their attributed actor. Self, ally, null-source and environment damage
+    cannot counter-hit.
+11. A qualifying hit applies `max(existing_frames, 3)` to attacker and victim.
+    Decrement exactly once per `_process()` call; never stack above three.
+
+R0.5 has one integration owner. Its exact write set is
+`scripts/sim/combat/attack_timeline.gd`, `scripts/sim/creature.gd`,
+`scripts/sim/kits/alligator.gd`, `scripts/data/creature_catalog.gd`,
+`scripts/game/arena.gd`, `data/battle_bog_roster.json`,
+`scripts/test/visual/scenarios/alligator_attack_reel_scenario.gd`,
+`tests/visual/manifest.json`, new `scripts/test/run_checked_command.ps1`,
+new `scripts/test/battle_bog_checked_command_contract_check.ps1`, and the named
+R0.5 test files. Timing data moves
+from top-level `primary_attack_timelines` to the Decision #23 canonical path
+`stats.action_timelines.<action_id>`; the catalog rejects the old top-level
+path after migration.
 
 Compatibility checks retain the legacy counter fallback for unmigrated
 Snapping Turtle and Wolf Spider, and verify recovery blocking does not suppress
@@ -313,6 +351,7 @@ Death Roll at valid Bite contact.
 Acceptance:
 
 ```powershell
+.\scripts\test\battle_bog_checked_command_contract_check.ps1
 .\scripts\test\run_all.ps1 -TestPattern 'battle_bog_frame_data_check.gd' -KeepGoing -StrictOutput
 .\scripts\test\run_all.ps1 -TestPattern 'battle_bog_attack_*check.gd' -KeepGoing -StrictOutput
 .\scripts\test\run_all.ps1 -TestPattern 'battle_bog_alligator*_check.gd' -KeepGoing -StrictOutput
@@ -325,8 +364,8 @@ git diff --check
 
 ### R1A Split-Step Movement Contract
 
-1. Add non-mutating `time_to_phase_boundary()` and `current_phase_name()` APIs
-   to `AttackTimeline`.
+1. Add non-mutating `time_to_phase_boundary()` to `AttackTimeline`;
+   `current_phase_name()` was added at R0.5.
 2. Replace the full-tick movement/timeline order with one integration method
    that partitions the tick at each timeline boundary.
 3. For each slice, read the current multiplier, move for that slice, then
@@ -340,6 +379,14 @@ git diff --check
 8. Preserve whole-tick `last_move_displacement_px`.
 9. Guard latch generation so a latch created at active contact does not lose
    duration in the same coarse tick.
+10. Implement this in
+    `Creature._integrate_attack_movement_and_timeline(delta)`, replacing the
+    separate attack-scaled steering and timeline advancement in `tick_sim()`.
+11. `time_to_phase_boundary()` returns `INF` while idle and `0.0` at a pending
+    boundary. The integration loop fails after more than eight boundaries in
+    one tick rather than hanging.
+12. `last_move_displacement_px` is the tick-start to tick-end displacement, not
+    accumulated path length.
 
 Tests cover every single and multi-boundary crossing, coarse-versus-partitioned
 equivalence, exact-once resolution, reactive death/reset, dash behavior and
@@ -399,7 +446,7 @@ Exact root schema:
 | `low_window_open` | `bool` | gameplay vulnerability truth |
 | `low_window_t` | `float` | normalized window progress |
 | `ground_anchor_px` | `Vector2` | world-space truth-ring anchor |
-| `active_actions` | `Array[Dictionary]` | sorted action records below |
+| `active_actions` | `Array[Dictionary]` | unique records sorted by `(owner_id, action_id, sequence_id)` |
 | `health_ratio` | `float` | normalized current health |
 | `resources` | `Dictionary` | `StringName -> float`, keys catalogued |
 | `stealth_state` | `StringName` | none/hidden/revealed/broken |
@@ -430,10 +477,18 @@ contact_point_px:Vector2    movement_multiplier:float
 blocks_action_starts:bool   counter_vulnerable:bool
 ```
 
+`owner_id` is the stable actor ID that accepted or spawned the action. Allowed
+phases are `startup`, `active`, `recovery`, `channel`, `armed`, `travel`,
+`aftermath` and `teardown`. Allowed outcomes are `none`, `hit`, `whiff`,
+`released`, `interrupted`, `expired` and `owner_lost`. A channel with no finite
+end uses `remaining_sec = -1.0`. Duplicate
+`(owner_id, action_id, sequence_id)` records are rejected.
+
 `projected_shape` accepts exactly one catalogued schema:
 
 ```text
 point:   kind:StringName, point_px:Vector2
+none:    kind:StringName
 circle:  kind:StringName, center_px:Vector2, radius_px:float
 capsule: kind:StringName, center_px:Vector2, axis:Vector2,
          radius_px:float, half_length_px:float
@@ -453,6 +508,16 @@ validated by `creature_catalog.gd`. Kit-cue leaves may be `bool`, `int`, finite
 `float`, `StringName`, `Vector2`, `Color`, `PackedVector2Array` or nested
 arrays/value dictionaries of those types only.
 
+The schema JSON enumerates team IDs, action IDs, phases, outcomes, locomotion,
+transition, elevation, resource and kit-cue keys. Unknown values fail
+construction; the implementer may not silently add an enum. Add
+`to_json_dictionary()` for evidence output, converting `StringName` to
+`String`, `Vector2` to `[x,y]`, `Color` to `[r,g,b,a]`, and packed arrays to
+ordinary JSON arrays. Runtime adapters use `to_dictionary()` only.
+`with_render_feedback(hitstop_frames:int, counter_flash_t:float,
+render_revision:int) -> CreaturePresentationSnapshot` is the only render
+derivation API.
+
 `Creature` builds one base snapshot after movement, timelines, kit state and
 lifecycle finish each fixed simulation tick. Repeated same-tick reads return
 the same object. `_process()` may call `with_render_feedback()` to create a new
@@ -468,7 +533,7 @@ switch/species reset; death/respawn state; and stable same-tick output.
 Visual adapters may not read `Creature`, kit objects, timers or scene nodes
 directly; the snapshot and static asset metadata are their only runtime inputs.
 
-### R2 Adapter Rules
+### R4 Combat Adapter Rules
 
 - Executable resolver behavior stays in kit/resolver code, never in roster JSON.
 - Projectile active creates exactly one projectile from the active position and
@@ -494,13 +559,13 @@ Planned files and proof:
 | Step | Owned Files | Focused Acceptance | Artifact Or Checkpoint |
 | --- | --- | --- | --- |
 | R1A | `attack_timeline.gd`, `creature.gd`, new `battle_bog_attack_movement_split_check.gd` | split-step focused test plus attack/Alligator compatibility | clean commit after full strict suite |
-| R1B | new `scripts/sim/presentation/creature_presentation_snapshot.gd`, compatibility adapter in `creature.gd`, new `battle_bog_creature_presentation_snapshot_check.gd` | snapshot isolation/schema test plus movement/Alligator checks | clean commit after full strict suite |
-| R2A | `scenes/test/VisualRegressionArena.tscn`, `scripts/test/visual/visual_regression_arena.gd`, manifest/scenario catalog, new `battle_bog_visual_regression_arena_check.gd` and `battle_bog_visual_capture_artifact_check.ps1` | validate/list fixture and capture neutral smoke at both camera presets | `artifacts/visual-regression/r2a-<run-id>/` |
-| R2B | `scripts/test/visual/image_metrics.gd`, comparator/promotion scripts and checks | three-run determinism, MAE/SSIM/changed-pixel tests, explicit promotion refusal/success | `tests/visual/baselines/<platform>/` plus `artifacts/visual-regression/r2b-<run-id>/` |
+| R1B | new `scripts/sim/presentation/creature_presentation_snapshot.gd`, `scripts/sim/creature.gd`, `scripts/data/creature_catalog.gd`, new `data/battle_bog_presentation_schema.json`, new `battle_bog_creature_presentation_snapshot_check.gd` | snapshot isolation/schema/JSON test plus movement/Alligator checks | clean commit after full strict suite |
+| R2A | extend existing `scenes/test/VisualRegressionArena.tscn`, `scripts/test/visual/visual_regression_arena.gd`, `visual_manifest.gd`, `run_visual_regression.ps1`, `tests/visual/manifest.json`; add `tests/visual/semantic_capture.schema.json`, scenario catalog and checks | add `-CameraPreset PvAI|Competitive`, `-CaptureMode Diagnostic|Evaluator|Performance`; validate/list and neutral smoke at both cameras | `artifacts/visual-regression/r2a-<attempt-token>/` |
+| R2B | new `scripts/test/visual/image_metrics.gd`, `compare_visual_regression.ps1`, `promote_visual_baseline.ps1`, `battle_bog_visual_comparator_check.ps1` | three-run determinism, thresholds, refusal before promotion, explicit approved promotion, post-promotion rerun | `tests/visual/baselines/<platform>/` plus `artifacts/visual-regression/r2b-<attempt-token>/` |
 | R2C | Alligator player-camera/shoreline scenarios and manifest entries | full frame interval, semantic JSON, evaluator mode and compositor evidence | `artifacts/visual-regression/r2c-<run-id>/` |
-| R2D | new `scripts/test/run_visual_performance.ps1`, `scripts/test/visual/performance_sampler.gd`, `scripts/test/battle_bog_visual_performance_contract_check.ps1` | 300 warm-up, 1,800 measured, five runs, readback disabled and required telemetry | `artifacts/visual-performance/r2d-<run-id>/performance.json` plus per-run samples |
-| R2E | new `scripts/sim/presentation/visual_adapter.gd` and `scripts/test/battle_bog_visual_adapter_boundary_check.gd` | adapter accepts snapshot/static metadata only and rejects Creature/kit/node reads | artifact-free code contract; checkpoint SHA and logs live in `artifacts/visual-adapter/r2e-<run-id>/` |
-| R2F | new `scripts/test/package_blinded_review.ps1`, `tests/visual/human_trials/trial_manifest.schema.json`, `scripts/test/battle_bog_blinded_review_contract_check.ps1` | randomized clips, participant/trial cardinality, separate answer key and no evaluator labels | `tests/visual/human_trials/<trial-id>/manifest.json`, `clips/`, `answer-key.json` |
+| R2D | new `scripts/test/run_visual_performance.ps1`, `scripts/test/visual/performance_sampler.gd`, `scripts/test/battle_bog_visual_performance_contract_check.ps1`, `tests/visual/performance.schema.json`, `alligator_six_actor_density_scenario.gd` and manifest entry | 300 warm-up, 1,800 measured, five runs, readback disabled and required telemetry | `artifacts/visual-performance/r2d-<attempt-token>/performance.json` plus per-run samples |
+| R2E | new `scripts/sim/presentation/visual_adapter.gd`, `scripts/visual/adapters/procedural_visual_adapter.gd` and `scripts/test/battle_bog_visual_adapter_boundary_check.gd` | adapter accepts snapshot/static metadata only and rejects Creature/kit/node/tree reads | artifact-free code contract; checkpoint SHA and logs live in `artifacts/visual-adapter/r2e-<attempt-token>/` |
+| R2F | new `scripts/test/package_blinded_review.ps1`, `tests/visual/human_trials/trial_manifest.schema.json`, `scripts/test/battle_bog_blinded_review_contract_check.ps1` | randomized clips, participant/trial cardinality, separate answer key and no evaluator labels | `tests/visual/human_trials/<trial-id>/participant-package/` and `evaluator-package/answer-key.json` |
 
 Commands after each relevant slice:
 
@@ -508,18 +573,41 @@ The new PowerShell scripts implement the parameter names shown here exactly;
 their contract checks reject missing artifacts, invalid counts and unknown
 arguments.
 
+R2A extends the manifest with
+`capture_window:{anchor:"TEL+0",before_frames:30,through:"RECOVERY_END"}` and
+`required_anchors`. Every event-relative scenario implements
+`get_named_anchors()`. R2C creates separate Alligator scenarios for
+`alligator_player_camera_attack`, `alligator_shoreline_transition`,
+`alligator_latch_death_roll`, `alligator_death_respawn` and
+`alligator_six_actor_density`.
+
+The comparator never writes a baseline. Promotion requires three matching
+passed captures from one clean HEAD/build/renderer/viewport contract, reviewer
+ID, written reason and old-hash verification. Replacing an existing baseline
+requires `-Replace -ApprovedBy <id>`. Promotion gets a dedicated commit and is
+followed by comparator and full-suite reruns. R4 evidence never promotes a
+baseline.
+
+`VisualAdapter` exposes only
+`configure(static_metadata:Dictionary)`, `apply_snapshot(snapshot)`,
+`get_root_canvas_item()` and `teardown()`. Its boundary check statically rejects
+Creature, kit, timeline, collision, damage and scene-tree reads in adapter
+directories. R2F encodes 60-fps clips with the repository-pinned ffmpeg and
+keeps label-free `participant-package/` physically separate from
+`evaluator-package/answer-key.json`.
+
 ```powershell
 .\scripts\test\run_all.ps1 -TestPattern 'battle_bog_attack_movement_split_check.gd' -KeepGoing -StrictOutput
 .\scripts\test\run_all.ps1 -TestPattern 'battle_bog_creature_presentation_snapshot_check.gd' -KeepGoing -StrictOutput
 .\scripts\test\run_all.ps1 -TestPattern 'battle_bog_visual_regression_arena_check.gd' -KeepGoing -StrictOutput
-.\scripts\test\run_visual_regression.ps1 -Validate
-.\scripts\test\run_visual_regression.ps1 -List
-.\scripts\test\run_visual_regression.ps1 -Scenario alligator_player_camera_attack -RunId r2c-<run-id> -Capture
-.\scripts\test\run_visual_performance.ps1 -Scenario alligator_density -RunId r2d-<run-id> -Runs 5 -WarmupFrames 300 -MeasuredFrames 1800
-.\scripts\test\battle_bog_visual_performance_contract_check.ps1 -ArtifactRoot "artifacts\visual-performance\r2d-<run-id>"
+.\scripts\test\run_visual_regression.ps1 -Validate -RunId r2a-validate-<attempt-token>
+.\scripts\test\run_visual_regression.ps1 -List -RunId r2a-list-<attempt-token>
+.\scripts\test\run_visual_regression.ps1 -Scenario alligator_player_camera_attack -RunId r2c-alligator-player-camera-<attempt-token> -Capture
+.\scripts\test\run_visual_performance.ps1 -Scenario alligator_six_actor_density -RunId r2d-<attempt-token> -Runs 5 -WarmupFrames 300 -MeasuredFrames 1800
+.\scripts\test\battle_bog_visual_performance_contract_check.ps1 -ArtifactRoot "artifacts\visual-performance\r2d-<attempt-token>"
 .\scripts\test\run_all.ps1 -TestPattern 'battle_bog_visual_adapter_boundary_check.gd' -KeepGoing -StrictOutput
-.\scripts\test\package_blinded_review.ps1 -InputRoot "artifacts\visual-regression\r2c-<run-id>" -TrialId r2f-<trial-id> -Participants 8 -TrialsPerTask 20 -Seed 307
-.\scripts\test\battle_bog_blinded_review_contract_check.ps1 -TrialRoot "tests\visual\human_trials\r2f-<trial-id>"
+.\scripts\test\package_blinded_review.ps1 -InputRoot "artifacts\visual-regression\r2c-<attempt-token>" -TrialId r2f-<attempt-token> -Participants 8 -TrialsPerTask 20 -Seed 307
+.\scripts\test\battle_bog_blinded_review_contract_check.ps1 -TrialRoot "tests\visual\human_trials\r2f-<attempt-token>"
 .\scripts\test\run_all.ps1 -KeepGoing -StrictOutput
 & 'C:\Godot\Godot_v4.6-stable_win64_console.exe' --headless --path . --quit-after 300
 git diff --check
@@ -598,6 +686,16 @@ Every row names its simulation owner, timing model, capture, focused test and
 any justified continuous/environmental exemption. No creature completes its
 combat gate while an inventory row is unclassified.
 
+Discovery is complete, but normalized implementation contracts are not.
+`R3.5` must expand each discovered row and each independently owned child effect
+to the exact schema in `BATTLE_BOG_DAMAGING_ACTION_INVENTORY.md`. R4 cannot
+start until the inventory validator and an independent reviewer mark every
+non-human-gated action `CONTRACT_READY`. The sole current exception is
+`otter_gang_up_cohort = HUMAN_BLOCKED` with `gate_id=R4H`; it blocks only R4F.1.
+Factual extraction preserves current code
+unless a `PROTOTYPE` migration record explicitly overrides it. Any genuine
+behavior conflict becomes `BLOCKED`; a weaker executor never chooses a side.
+
 Use timing schemas by action type:
 
 | Schema | Ordered Fields | Ownership Rule |
@@ -658,8 +756,9 @@ fields, pets and finishers in `BATTLE_BOG_DAMAGING_ACTION_INVENTORY.md`.
 | R4E.2 | Water Shrew, Mink | Bite/empowered Bite; Bite/Choke impact/countdown/execute ownership | integration owner moves Choke out of `Creature`; focused timeline checks for each |
 | R4E.3 | Chorus Frog, Great Blue Heron | Tongue tip/shaft geometry; planted Spear line and recoil | shared line-geometry reviewer; separate creature timeline checks |
 | R4E.4 | Snapping Turtle, Wolf Spider | Bite/Grab; Bite Lunge/Burrow Charge/latch/Spiderling | one dash/latch integration owner; separate creature and pet timeline checks |
-| R4F.1 | Otter | Bite/latch, Tail Whip and Gang Up cohort | starts only after `R4H` Otter identity gate; dedicated `battle_bog_otter_timeline_check.gd` |
-| R4F.2 | Leech | primary projectile/attachment and Sensory Crypt | projectile helper already proven at R4A; dedicated `battle_bog_leech_timeline_check.gd` |
+| R4F.0 | Otter | Bite/latch and Tail Whip only | may proceed before `R4H`; no Gang Up cohort behavior or final Otter assets |
+| R4F.2 | Leech | primary projectile/attachment and Sensory Crypt | follows R4E.4 independently of Otter; projectile helper already proven at R4A |
+| R4F.1 | Otter | Gang Up cohort only | starts after `R4H`; reuses proven Bite/latch and dedicated Otter timeline check |
 
 The integration owner alone edits `Creature`, catalog, roster data and shared
 helpers. Kit/test owners work only in the named creature files. Each order row
@@ -672,16 +771,17 @@ Exact implementation write sets:
 
 | Slice | New Shared Files | Existing Implementation Files |
 | --- | --- | --- |
-| R4A | `scripts/sim/combat/projectile_release_resolver.gd` | `scripts/sim/kits/mosquito_swarm.gd`, `scripts/sim/kits/firefly.gd`, their projectile/field entities, roster JSON and catalog |
-| R4B | `scripts/sim/combat/attack_alternation_context.gd` | `scripts/sim/kits/newt.gd`, `crayfish.gd`, `duck.gd`, `scripts/sim/pets/duckling.gd`, roster JSON and catalog |
-| R4C | `scripts/sim/combat/timeline_melee_resolver.gd`, `scripts/sim/combat/latch_followup.gd` | `scripts/sim/kits/alligator.gd`, `bullfrog.gd`, `water_snake.gd`, roster JSON and catalog |
-| R4D | `scripts/sim/combat/aerial_strike_context.gd` | `scripts/sim/kits/kingfisher.gd`, `owl.gd`, `cane_toad.gd`, roster JSON and catalog; channel remains Cane-Toad-local |
-| R4E.1 | none unless second use proves it | `scripts/sim/kits/beaver.gd`, `bog_turtle.gd`, roster JSON and catalog |
-| R4E.2 | none | `scripts/sim/kits/water_shrew.gd`, `mink.gd`, `scripts/sim/creature.gd` for Choke-owner removal, roster JSON and catalog |
-| R4E.3 | none unless shared line geometry is still duplicated after both migrations | `scripts/sim/kits/chorus_frog.gd`, `great_blue_heron.gd`, roster JSON and catalog |
-| R4E.4 | none | `scripts/sim/kits/snapping_turtle.gd`, `wolf_spider.gd`, `scripts/sim/pets/spiderling.gd`, roster JSON and catalog |
-| R4F.1 | Otter cohort helper only after `R4H` approves its contract | `scripts/sim/kits/otter.gd`, roster JSON and catalog |
-| R4F.2 | reuse R4A projectile resolver | `scripts/sim/kits/leech.gd`, leech projectile/attachment entity, roster JSON and catalog |
+| R4A | `scripts/sim/combat/projectile_release_resolver.gd` | `scripts/sim/kits/mosquito_swarm.gd`, `scripts/sim/kits/firefly.gd`, `scripts/sim/entities/mosquito_projectile.gd`, `scripts/sim/entities/mosquito_field.gd`, `scripts/sim/entities/firefly_projectile.gd`, `scripts/sim/creature.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd`, `scripts/test/battle_bog_wave3_mosquito_swarm_check.gd`, `scripts/test/battle_bog_wave3_firefly_check.gd` |
+| R4B | `scripts/sim/combat/attack_alternation_context.gd` | `scripts/sim/kits/newt.gd`, `scripts/sim/kits/crayfish.gd`, `scripts/sim/kits/duck.gd`, `scripts/sim/pets/duckling.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd` |
+| R4C | `scripts/sim/combat/timeline_melee_resolver.gd`, `scripts/sim/combat/latch_followup.gd` | `scripts/sim/kits/alligator.gd`, `scripts/sim/kits/bullfrog.gd`, `scripts/sim/kits/water_snake.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd` |
+| R4D | `scripts/sim/combat/aerial_strike_context.gd` | `scripts/sim/kits/kingfisher.gd`, `scripts/sim/kits/owl.gd`, `scripts/sim/kits/cane_toad.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd`; channel remains Cane-Toad-local |
+| R4E.1 | none | `scripts/sim/kits/beaver.gd`, `scripts/sim/kits/bog_turtle.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd` |
+| R4E.2 | none | `scripts/sim/kits/water_shrew.gd`, `scripts/sim/kits/mink.gd`, `scripts/sim/creature.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd` |
+| R4E.3 | `scripts/sim/combat/line_contact_resolver.gd` only if both contracts require identical line semantics | `scripts/sim/kits/chorus_frog.gd`, `scripts/sim/kits/great_blue_heron.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd` |
+| R4E.4 | none | `scripts/sim/kits/snapping_turtle.gd`, `scripts/sim/kits/wolf_spider.gd`, `scripts/sim/pets/spiderling.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd` |
+| R4F.0 | none | `scripts/sim/kits/otter.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd`; excludes Gang Up cohort |
+| R4F.2 | reuse `scripts/sim/combat/projectile_release_resolver.gd` | `scripts/sim/kits/leech.gd`, `scripts/sim/entities/leech_projectile.gd`, `scripts/sim/creature.gd::apply_dot`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd` |
+| R4F.1 | `scripts/sim/combat/otter_cohort_context.gd` | `scripts/sim/kits/otter.gd`, `data/battle_bog_roster.json`, `scripts/data/creature_catalog.gd` |
 
 Each named focused test is a required new file. Run the block for the current
 slice, then the standard closeout block.
@@ -726,60 +826,54 @@ slice, then the standard closeout block.
 .\scripts\test\run_all.ps1 -TestPattern 'battle_bog_leech_timeline_check.gd' -KeepGoing -StrictOutput
 ```
 
-Each slice also adds these exact manifest scenarios:
+Each slice adds one manifest scenario per normalized `action_id`. Creature-level
+`<creature>_player_camera_attack` scenarios remain summary indexes and never
+substitute for channel, retaliation, field, child or lifecycle evidence.
 
 ```powershell
-$scenarioGroups = @{
-    "r4a"   = @("mosquito_swarm_player_camera_attack", "firefly_player_camera_attack")
-    "r4b"   = @("newt_player_camera_attack", "crayfish_player_camera_attack", "duck_player_camera_attack")
-    "r4c"   = @("alligator_player_camera_attack", "bullfrog_player_camera_attack", "water_snake_player_camera_attack")
-    "r4d"   = @("kingfisher_player_camera_attack", "owl_player_camera_attack", "cane_toad_player_camera_attack")
-    "r4e1"  = @("beaver_player_camera_attack", "bog_turtle_player_camera_attack")
-    "r4e2"  = @("water_shrew_player_camera_attack", "mink_player_camera_attack")
-    "r4e3"  = @("chorus_frog_player_camera_attack", "great_blue_heron_player_camera_attack")
-    "r4e4"  = @("snapping_turtle_player_camera_attack", "wolf_spider_player_camera_attack")
-    "r4f1"  = @("otter_player_camera_attack")
-    "r4f2"  = @("leech_player_camera_attack")
-}
-
 $slice = "<slice>"
-$runId = "<run-id>"
-foreach ($scenario in $scenarioGroups[$slice]) {
-    $captureId = "$slice-$scenario-$runId"
+$attemptToken = "<attempt-token>"
+$contracts = Get-ChildItem "docs\action-contracts\*.json" |
+    ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json } |
+    Where-Object { $_.r4_slice -eq $slice }
+foreach ($contract in $contracts) {
+  foreach ($scenario in $contract.scenario_ids) {
+    $captureId = "r4-$slice-$($contract.action_id)-$scenario-$attemptToken"
     .\scripts\test\run_visual_regression.ps1 -Scenario $scenario -RunId $captureId -Capture
     .\scripts\test\battle_bog_visual_capture_artifact_check.ps1 `
         -ArtifactRoot "artifacts\visual-regression\$captureId" `
         -Scenario $scenario `
-        -RequiredAnchors "TEL+0,HIT-1,HIT+0,RECOVERY+0"
+        -RequiredAnchors ($contract.required_anchors -join ",")
+  }
 }
 ```
 
 Each capture root must contain non-empty
 `<scenario>.frame_<frame>.png` and matching `.json` for every captured frame,
-including the four named anchors and all frames from `TEL-30` through recovery
-end. JSON must report scenario ID, seed, camera preset, simulation tick, action
-phase/outcome, projected shape and contact truth. Missing or mismatched pairs
-fail the slice.
+including every class-specific named anchor and its written capture window.
+JSON must report scenario ID, action ID, seed, camera preset, simulation tick,
+action phase/outcome, projected shape, contact truth, source/child ownership and
+teardown truth. Missing or mismatched pairs fail the slice.
 
 Standard closeout for `<slice>`:
 
-```powershell
-$artifact = "artifacts\combat-migration\<slice>-<run-id>"
-New-Item -ItemType Directory -Force -Path $artifact | Out-Null
-.\scripts\test\run_all.ps1 -KeepGoing -StrictOutput 2>&1 | Tee-Object -FilePath "$artifact\full-suite.log"
-& 'C:\Godot\Godot_v4.6-stable_win64_console.exe' --headless --path . --quit-after 300 2>&1 | Tee-Object -FilePath "$artifact\headless.log"
-git diff --check 2>&1 | Tee-Object -FilePath "$artifact\diff-check.log"
-git status --short | Set-Content "$artifact\status-before-commit.txt"
-```
+Use the fail-closed command/artifact contract in
+`BATTLE_BOG_WEAK_MODEL_EXECUTION_RUNBOOK.md`. The canonical closeout root is
+`artifacts/combat-migration/r4-<slice>-<attempt-token>/`; every command result,
+focused log, capture index and hash is copied there before another command can
+overwrite shared logs.
 
 Create one scoped commit only after those logs pass. Then write its full SHA to
-`$artifact\commit.txt`. R4 produces no promoted visual baseline; procedural
-camera evidence remains under `artifacts/visual-regression/r4-<slice>-<run-id>/`.
+`commit.txt`. R4 produces no promoted visual baseline; each procedural capture
+remains under
+`artifacts/visual-regression/r4-<slice>-<action-id>-<scenario>-<attempt-token>/`.
 
 Wave promotion rule:
 
 1. shared helper tests pass;
-2. one reference creature passes focused and compatibility tests;
+2. both named semantic consumers pass focused and compatibility tests:
+   Mosquito+Firefly, Newt+Crayfish, Alligator+Bullfrog,
+   Alligator+Water Snake, or Kingfisher+Owl as applicable;
 3. independent review confirms semantic fit;
 4. remaining wave creatures may proceed in parallel;
 5. full strict suite and visual evidence pass before the next wave.
@@ -943,6 +1037,14 @@ Each wave ends with a clean checkpoint commit before the next wave starts.
 
 ## Autonomy Rules
 
+Every slice begins from the exact scope, checkout and attempt rules in
+`BATTLE_BOG_WEAK_MODEL_EXECUTION_RUNBOOK.md`. A discovered bug may be fixed in
+the current slice only when its cause and every changed file are already inside
+that slice's declared write set and the fix preserves the named contract.
+Otherwise record it and stop for a corrective slice. Do not resolve authority
+conflicts, alter balance, refactor adjacent systems, promote baselines or infer
+a human/rights decision.
+
 The implementation should continue without asking when:
 
 - this roadmap provides a prototype timing;
@@ -953,13 +1055,18 @@ The implementation should continue without asking when:
 
 Pause for user input only at:
 
-1. `HUMAN GATE` visual-pipeline selection;
+1. `R2BH` initial procedural baseline truth approval;
 2. `R4H` Otter pack identity;
-3. `R14A` Owl species identity;
-4. another identity-changing gameplay redesign;
-5. a balance choice that cannot preserve current behavior;
-6. a legal or rights ambiguity affecting intended asset reuse;
-7. target-hardware selection for absolute performance thresholds.
+3. `R10` victory/defeat/soak review approvals;
+4. `R10A` shared Alligator concept/source rig approval;
+5. `R12` candidate comprehension/elimination;
+6. `R12H` target-hardware contract or record-only confirmation;
+7. `R14` visual-pipeline selection;
+8. `R14A` Owl species identity;
+9. `R17B` final human comprehension approval;
+10. another identity-changing gameplay redesign;
+11. a balance choice that cannot preserve current behavior;
+12. a legal or rights ambiguity affecting intended asset reuse.
 
 When research is incomplete, continue simulation and fixture work. Do not lock
 the final animation brief or claim human acceptance.
@@ -967,48 +1074,62 @@ the final animation brief or claim human acceptance.
 ## Exact Execution Queue
 
 ```text
-[complete] R0 checkpoint current Alligator foundation at 9e211c8
+[complete] R0 code foundation at 9e211c8; minimum plan ancestor 710b5d4
 [next]     R0.5 conform Alligator/shared frame data to locked Decisions #23-26
 [next]     R1A split-step movement integration
 [next]     R1B immutable presentation snapshot and compatibility adapter
 [next]     R2A real Arena fixture + PvAI/3v3 camera presets + capture modes
-[next]     R2B semantic output + comparator + explicit baseline promotion
+[next]     R2B semantic output + comparator + synthetic/refusal tests
+[human]    R2BH approve one exact procedural source run as baseline truth
+[next]     R2B.2 promote only the approved baseline and rerun comparator/full suite
 [next]     R2C full procedural Alligator player-camera/shoreline evidence
 [next]     R2D expanded screenshot-free performance runner and telemetry artifacts
 [next]     R2E snapshot-only visual-adapter boundary
 [next]     R2F blinded-review packager, trial manifests and separate answer keys
-[complete] R3 code-search every damaging action and define P1-P5 prototype policies
+[complete] R3 discover every damaging action and define P1-P5 prototype policies
+[next]     R3.5 normalize every action/child contract and pass independent completeness review
 [next]     R4A projectile adapter with Mosquito then Firefly
 [next]     R4B alternation context with Newt then Crayfish; migrate Duck
 [next]     R4C melee extraction with Alligator then Bullfrog; narrow latch with Water Snake
 [next]     R4D aerial context with Kingfisher and Owl; Cane Toad channel remains kit-local
 [next]     R4E migrate Beaver/Bog Turtle, Water Shrew/Mink, Chorus/Heron, Snapping/Wolf Spider
-[human]    R4H select Otter pack cohort, health, travel and control-transfer rules
-[next]     R4F migrate Otter, then Leech, under procedural rendering
-[next]     R5 pass focused/full strict tests and freeze gameplay-affecting contracts
+[next]     R4F.0 migrate Otter Bite/latch/Tail Whip without Gang Up cohort
+[next]     R4F.2 migrate Leech after R4E.4
+[human]    R4H select Otter Gang Up cohort, health, travel and control-transfer rules
+[next]     R4F.1 implement approved Otter Gang Up cohort
+[next]     R5 pass focused/full strict tests and freeze combat structure/API
 [next]     R6 run/review StageB5; classify every anomaly before promotion
 [next]     R7 run/review StageB15 and throughput optimization without checksum drift
 [next]     R8 run/review StageCMain
 [next]     R9 classify misses, then run/review StageCExtended
 [human]    R10 record PvAI victory, defeat and 21+ minute soak; clear every S0/S1
+[next]     R10.5 freeze gameplay content after the final clean R6-R10 loop
+[human]    R10A approve the shared Alligator concept/source rig used by all four candidates
 [next]     R11 build four Alligator visual adapters and automated evidence
 [human]    R12 blinded Alligator comprehension/elimination; retain at least two
+[human]    R12H lock target hardware/build/renderer/VSync/quality/minimum FPS or keep numerical performance record-only
 [next]     R13 test survivors on Kingfisher, Mosquito and mixed 3v3
 [human]    R14 select roster default visual pipeline and documented exceptions
 [human]    R14A select playable Owl species and record it in roster/research
 [research] R14B close or formally defer each movement-gap row before its V-wave
+[next]     R14C finalize/package selected V0 Alligator and V1 Kingfisher/Mosquito
 [next]     R15 complete visual waves V2-V5 in dependency order
 [next]     R16 complete 21-creature camera, accessibility and visual/PvAI evidence matrix
-[next]     R17 mixed 3v3 performance, comprehension and release gate
+[next]     R17A automated mixed-3v3 truth/performance release gate
+[human]    R17B twelve-participant mixed-3v3 comprehension release gate
 ```
 
 Immediate implementation begins at `R0.5`, then `R1A` and `R1B`. All
-gameplay-affecting combat migration finishes and freezes at `R5` before the
-locked PvAI sequence at `R6-R10`. No visual adapter production starts before
+gameplay-affecting combat migration finishes and its structure freezes at `R5`
+before the locked PvAI sequence at `R6-R10`. Any tuning change loops through
+focused/full tests and restarts at R6. Content freezes only at `R10.5`. No
+visual adapter production starts before
 that gate passes. Shared behavior is extracted only alongside the named second
 consumer, so no generalized adapter is invented in isolation.
 
 At `R14B`, unavailable evidence defers only the affected creature's final
 animation brief. Keep its truthful procedural fallback, proceed with other
 wave members, and leave that creature `INCOMPLETE`; never fill the gap with an
-unsupported biological claim.
+unsupported biological claim. A deferral cannot pass R16 or R17. Before release,
+each row must close. Releasing fewer than all 21 creatures requires a separately
+approved roadmap version and is outside this plan.
