@@ -3,13 +3,18 @@ param(
 	[string]$Manifest = "tests\visual\manifest.json",
 	[string]$Scenario = "",
 	[string]$RunId = "",
-	[int]$TimeoutSec = 60,
+	[int]$TimeoutSec = 300,
+	[ValidateSet("PvAI", "Competitive")]
+	[string]$CameraPreset = "PvAI",
+	[ValidateSet("Diagnostic", "Evaluator", "Performance")]
+	[string]$CaptureMode = "Diagnostic",
 	[switch]$Capture,
 	[switch]$List,
 	[switch]$Validate
 )
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version 3.0
 
 function Resolve-Executable {
 	param([string]$Candidate)
@@ -83,6 +88,46 @@ function Convert-ToGodotPath {
 	return $absolute.Replace("\", "/")
 }
 
+function Convert-ToNativeArgument {
+	param([AllowEmptyString()][string]$Value)
+	if ($Value.Length -gt 0 -and $Value -notmatch '[\s"]') {
+		return $Value
+	}
+	$builder = New-Object System.Text.StringBuilder
+	[void]$builder.Append('"')
+	$backslashes = 0
+	foreach ($character in $Value.ToCharArray()) {
+		if ($character -eq '\') {
+			$backslashes += 1
+			continue
+		}
+		if ($character -eq '"') {
+			[void]$builder.Append(('\' * (($backslashes * 2) + 1)))
+			[void]$builder.Append('"')
+			$backslashes = 0
+			continue
+		}
+		if ($backslashes -gt 0) {
+			[void]$builder.Append(('\' * $backslashes))
+			$backslashes = 0
+		}
+		[void]$builder.Append($character)
+	}
+	if ($backslashes -gt 0) {
+		[void]$builder.Append(('\' * ($backslashes * 2)))
+	}
+	[void]$builder.Append('"')
+	return $builder.ToString()
+}
+
+function Stop-ProcessTree {
+	param([int]$ProcessId)
+	$taskKill = Join-Path $env:SystemRoot "System32\taskkill.exe"
+	if (Test-Path -LiteralPath $taskKill) {
+		$null = & $taskKill /PID $ProcessId /T /F 2>&1
+	}
+}
+
 function Invoke-Godot {
 	param(
 		[string]$GodotPath,
@@ -93,35 +138,52 @@ function Invoke-Godot {
 	)
 
 	$started = Get-Date
-	$job = Start-Job -ArgumentList $GodotPath, $RepoRoot, $Arguments -ScriptBlock {
-		param(
-			[string]$InnerGodotPath,
-			[string]$InnerRepoRoot,
-			[object[]]$InnerArguments
-		)
-		Set-Location -LiteralPath $InnerRepoRoot
-		$lines = & $InnerGodotPath @InnerArguments 2>&1 |
-			ForEach-Object { $_.ToString() }
-		[pscustomobject]@{
-			ExitCode = $LASTEXITCODE
-			Output = ($lines -join [Environment]::NewLine)
-		}
-	}
-
-	$completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
 	$output = ""
 	$exitCode = -1
-	if ($null -ne $completed) {
-		$payload = Receive-Job -Job $job
-		if ($null -ne $payload) {
-			$exitCode = [int]$payload.ExitCode
-			$output = [string]$payload.Output
+	$process = $null
+	try {
+		$startInfo = New-Object System.Diagnostics.ProcessStartInfo
+		$startInfo.FileName = $GodotPath
+		$startInfo.Arguments = (@($Arguments) | ForEach-Object {
+			Convert-ToNativeArgument ([string]$_)
+		}) -join " "
+		$startInfo.WorkingDirectory = $RepoRoot
+		$startInfo.UseShellExecute = $false
+		$startInfo.CreateNoWindow = $true
+		$startInfo.RedirectStandardOutput = $true
+		$startInfo.RedirectStandardError = $true
+		$process = New-Object System.Diagnostics.Process
+		$process.StartInfo = $startInfo
+		if (-not $process.Start()) {
+			throw "Godot process start returned false."
 		}
-	} else {
-		Stop-Job -Job $job -ErrorAction SilentlyContinue
-		$output = "Timed out after $TimeoutSeconds seconds."
+		$stdoutTask = $process.StandardOutput.ReadToEndAsync()
+		$stderrTask = $process.StandardError.ReadToEndAsync()
+		if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+			Stop-ProcessTree -ProcessId $process.Id
+			if (-not $process.WaitForExit(5000)) {
+				$process.Kill()
+				$process.WaitForExit()
+			}
+			$exitCode = 124
+		} else {
+			$exitCode = [int]$process.ExitCode
+		}
+		$stdout = $stdoutTask.Result.TrimEnd()
+		$stderr = $stderrTask.Result.TrimEnd()
+		$outputParts = @(
+			@($stdout, $stderr) |
+				Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+		)
+		$output = $outputParts -join [Environment]::NewLine
+		if ($exitCode -eq 124) {
+			$output = "Timed out after $TimeoutSeconds seconds.`n$output".Trim()
+		}
+	} finally {
+		if ($null -ne $process) {
+			$process.Dispose()
+		}
 	}
-	Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
 
 	$elapsedMs = [int]((Get-Date) - $started).TotalMilliseconds
 	$header = @(
@@ -219,8 +281,10 @@ function Write-RunMetadata {
 		Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
-$selectedModes = @($Capture.IsPresent, $List.IsPresent, $Validate.IsPresent) |
-	Where-Object { $_ }
+$selectedModes = @(
+	@($Capture.IsPresent, $List.IsPresent, $Validate.IsPresent) |
+		Where-Object { $_ }
+)
 if ($selectedModes.Count -gt 1) {
 	throw "Choose only one mode: -Capture, -List, or -Validate."
 }
@@ -249,6 +313,11 @@ if ($fixedStepHz -le 0) {
 	throw "viewport.fixed_step_hz must be positive."
 }
 $renderer = [string]$manifestData.viewport.renderer
+$cameraZoom = if ($CameraPreset -eq "PvAI") {
+	@(2.6, 2.6)
+} else {
+	@(2.2, 2.2)
+}
 
 if ([string]::IsNullOrWhiteSpace($RunId)) {
 	$RunId = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
@@ -297,7 +366,9 @@ $arguments += @(
 	"--bb-visual-mode=$mode",
 	"--bb-visual-manifest=$godotManifestPath",
 	"--bb-visual-run-id=$RunId",
-	"--bb-visual-output=$($runDirectory.Replace('\', '/'))"
+	"--bb-visual-output=$($runDirectory.Replace('\', '/'))",
+	"--bb-camera-preset=$CameraPreset",
+	"--bb-capture-mode=$CaptureMode"
 )
 if (-not [string]::IsNullOrWhiteSpace($Scenario)) {
 	$arguments += "--bb-visual-scenario=$Scenario"
@@ -308,6 +379,12 @@ $runMetadata = [ordered]@{
 	schema_version = 1
 	run_id = $RunId
 	mode = $mode
+	camera_preset = $CameraPreset
+	capture_mode = $CaptureMode
+	camera_zoom = [ordered]@{
+		x = $cameraZoom[0]
+		y = $cameraZoom[1]
+	}
 	scenario_filter = $Scenario
 	capture_started_utc = (Get-Date).ToUniversalTime().ToString("o")
 	capture_completed_utc = $null
@@ -317,6 +394,11 @@ $runMetadata = [ordered]@{
 		path = $manifestPath
 		sha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
 		fixed_step_hz = $fixedStepHz
+		viewport = [ordered]@{
+			width = $viewportWidth
+			height = $viewportHeight
+		}
+		renderer = $renderer
 	}
 	project_settings = [ordered]@{
 		path = (Join-Path $repoRoot "project.godot")
@@ -340,6 +422,8 @@ Write-RunMetadata -Path $metadataPath -Metadata $runMetadata
 Write-Host "Godot:   $godotPath"
 Write-Host "Repo:    $repoRoot"
 Write-Host "Mode:    $mode"
+Write-Host "Camera:  $CameraPreset ($($cameraZoom -join ', '))"
+Write-Host "Capture: $CaptureMode"
 Write-Host "Manifest: $manifestPath"
 Write-Host "Log:     $logPath"
 
@@ -405,52 +489,36 @@ if ($scenarios.Count -eq 0) {
 	throw "No manifest scenario matched '$Scenario'."
 }
 
-$verifiedPairs = 0
-foreach ($scenarioEntry in $scenarios) {
-	foreach ($frameValue in @($scenarioEntry.capture_frames)) {
-		$frameIndex = [int]$frameValue
-		$basename = "{0}.frame_{1:D6}" -f $scenarioEntry.id, $frameIndex
-		$pngPath = Join-Path $runDirectory "$basename.png"
-		$statePath = Join-Path $runDirectory "$basename.json"
-		if (-not (Test-Path -LiteralPath $pngPath -PathType Leaf)) {
-			throw "Expected screenshot is missing: $pngPath"
-		}
-		if ((Get-Item -LiteralPath $pngPath).Length -le 0) {
-			throw "Expected screenshot is empty: $pngPath"
-		}
-		if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
-			throw "Expected state JSON is missing: $statePath"
-		}
-		try {
-			$state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-		} catch {
-			throw "State JSON is invalid: $statePath`n$($_.Exception.Message)"
-		}
-		if ($state.scenario_id -ne $scenarioEntry.id -or [int]$state.capture_frame -ne $frameIndex) {
-			throw "State JSON does not match its expected scenario/frame: $statePath"
-		}
-		if ([int]$state.viewport.width -ne 1280 -or [int]$state.viewport.height -ne 720) {
-			throw "State JSON reports the wrong viewport: $statePath"
-		}
-		$actualPngHash = (Get-FileHash -LiteralPath $pngPath -Algorithm SHA256).Hash.ToLowerInvariant()
-		if ([string]$state.png_sha256 -ne $actualPngHash) {
-			throw "State JSON PNG hash does not match the screenshot: $statePath"
-		}
-		if ([string]$state.runtime.renderer.actual_method -ne $renderer) {
-			throw "State JSON reports the wrong active renderer: $statePath"
-		}
-		$verifiedPairs += 1
-	}
-}
-
 if ($result.Output -notmatch "BB_VISUAL_CAPTURE_COMPLETE") {
 	throw "Capture exited without its completion marker. See $logPath"
 }
 
+$artifactChecker = Join-Path $scriptRoot "battle_bog_visual_capture_artifact_check.ps1"
+if (-not (Test-Path -LiteralPath $artifactChecker -PathType Leaf)) {
+	throw "Visual capture artifact checker is missing: $artifactChecker"
+}
+& $artifactChecker `
+	-ArtifactRoot $runDirectory `
+	-Manifest $manifestPath `
+	-CameraPreset $CameraPreset `
+	-CaptureMode $CaptureMode `
+	-Scenario $Scenario
+if ($LASTEXITCODE -ne 0) {
+	throw "Visual capture artifact validation failed with exit code $LASTEXITCODE."
+}
+
+$semanticCount = @(
+	Get-ChildItem -LiteralPath $runDirectory -Filter "*.json" -File |
+		Where-Object { $_.Name -ne "run_metadata.json" }
+).Count
 $runMetadata.status = "passed"
-$runMetadata.result.verified_pairs = $verifiedPairs
+$runMetadata.result.verified_semantic_captures = $semanticCount
 Write-RunMetadata -Path $metadataPath -Metadata $runMetadata
 
 Write-Host ""
-Write-Host "Visual capture passed: $verifiedPairs PNG/state pairs"
+if ($CaptureMode -eq "Performance") {
+	Write-Host "Visual capture passed: $semanticCount semantic captures (no screenshot readback)"
+} else {
+	Write-Host "Visual capture passed: $semanticCount PNG/semantic pairs"
+}
 Write-Host "Artifacts: $runDirectory"

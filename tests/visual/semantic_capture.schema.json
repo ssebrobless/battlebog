@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "battle_bog_semantic_capture_v1",
+  "title": "Battle Bog semantic visual capture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "action_id",
+    "seed",
+    "camera_preset",
+    "camera_zoom",
+    "capture_mode",
+    "frame",
+    "tick",
+    "actor_id",
+    "target_id",
+    "snapshot",
+    "phase",
+    "outcome",
+    "projected_contact",
+    "contact_truth",
+    "terrain",
+    "depth",
+    "named_anchors",
+    "diagnostic_labels",
+    "screenshot_readback_count",
+    "viewport",
+    "png_sha256",
+    "runtime"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "scenario_id": { "type": "string", "minLength": 1 },
+    "action_id": { "type": "string", "minLength": 1 },
+    "seed": { "type": "integer", "minimum": 0 },
+    "camera_preset": { "enum": ["PvAI", "Competitive"] },
+    "camera_zoom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number", "exclusiveMinimum": 0 },
+        "y": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "capture_mode": { "enum": ["Diagnostic", "Evaluator", "Performance"] },
+    "frame": { "type": "integer", "minimum": 0 },
+    "tick": { "type": "integer", "minimum": 0 },
+    "actor_id": { "type": "string", "minLength": 1 },
+    "target_id": { "type": "string" },
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "simulation_tick",
+        "actor_id",
+        "creature_id",
+        "team",
+        "alive"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "simulation_tick": { "type": "integer", "minimum": 0 },
+        "actor_id": { "type": "string", "minLength": 1 },
+        "creature_id": { "type": "string", "minLength": 1 },
+        "team": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "alive": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "phase": { "enum": ["idle", "startup", "active", "recovery"] },
+    "outcome": { "enum": ["none", "hit", "whiff", "released", "interrupted"] },
+    "projected_contact": { "type": "boolean" },
+    "contact_truth": { "enum": ["none", "hit", "whiff", "blocked"] },
+    "terrain": { "type": "string", "minLength": 1 },
+    "depth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["elevation_state", "height_units"],
+      "properties": {
+        "elevation_state": { "type": "string", "minLength": 1 },
+        "height_units": { "type": "number", "minimum": 0 }
+      }
+    },
+    "named_anchors": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "diagnostic_labels": { "type": "boolean" },
+    "screenshot_readback_count": { "type": "integer", "minimum": 0, "maximum": 1 },
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "expected_renderer"],
+      "properties": {
+        "width": { "const": 1280 },
+        "height": { "const": 720 },
+        "expected_renderer": { "const": "mobile" }
+      }
+    },
+    "png_sha256": { "type": "string" },
+    "runtime": { "type": "object" }
+  }
+}

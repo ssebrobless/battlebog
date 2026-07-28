@@ -1,5 +1,6 @@
 extends RefCounted
 
+const ScenarioCatalog := preload("res://scripts/test/visual/scenario_catalog.gd")
 const SUPPORTED_SCHEMA_VERSION := 1
 
 
@@ -102,25 +103,7 @@ static func _validate_scenario(
 		return "Scenario '%s' seed must be an integer." % scenario_id
 	scenario["seed"] = int(seed_value)
 
-	var capture_frames: Variant = scenario.get("capture_frames")
-	if not capture_frames is Array or capture_frames.is_empty():
-		return "Scenario '%s' capture_frames must be a non-empty array." % scenario_id
-
-	var previous_frame := -1
-	var normalized_frames: Array[int] = []
-	for frame_value in capture_frames:
-		if not _is_integral_number(frame_value):
-			return "Scenario '%s' capture frames must be integers." % scenario_id
-		if int(frame_value) < 0:
-			return "Scenario '%s' capture frames must be non-negative integers." % scenario_id
-		var frame_index := int(frame_value)
-		if frame_index <= previous_frame:
-			return "Scenario '%s' capture_frames must be unique and ascending." % scenario_id
-		previous_frame = frame_index
-		normalized_frames.append(frame_index)
-	scenario["capture_frames"] = normalized_frames
-
-	return ""
+	return ScenarioCatalog.validate_scenario_contract(scenario)
 
 
 static func _is_integral_number(value: Variant) -> bool:

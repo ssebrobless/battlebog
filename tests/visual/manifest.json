@@ -9,28 +9,19 @@
   "scenarios": [
     {
       "id": "neutral_smoke",
-      "description": "Procedural render-and-capture plumbing smoke test.",
-      "script": "res://scripts/test/visual/scenarios/neutral_smoke_scenario.gd",
+      "description": "Real Arena and Creature presentation smoke test.",
+      "script": "res://scripts/test/visual/scenarios/neutral_real_arena_scenario.gd",
       "seed": 424242,
-      "capture_frames": [
-        0,
-        15,
-        30
-      ]
-    },
-    {
-      "id": "alligator_attack_reel",
-      "description": "Deterministic Alligator ordinary attack reel covering neutral, startup, active, counter-flash endpoints, and outcome-specific recovery reads.",
-      "script": "res://scripts/test/visual/scenarios/alligator_attack_reel_scenario.gd",
-      "seed": 107907,
-      "capture_frames": [
-        0,
-        12,
-        24,
-        30,
-        36,
-        96,
-        153
+      "environment": "real_arena",
+      "evaluator_safe": true,
+      "capture_window": {
+        "anchor": "NEUTRAL+0",
+        "before_frames": 0,
+        "through": "NEUTRAL_END"
+      },
+      "required_anchors": [
+        "NEUTRAL+0",
+        "NEUTRAL_END"
       ]
     }
   ]
