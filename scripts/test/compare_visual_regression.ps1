@@ -133,6 +133,12 @@ function Require-Property {
 	if ($null -eq $Object) {
 		throw "$Label is null."
 	}
+	if ($Object -is [Collections.IDictionary]) {
+		if (-not $Object.Contains($Name)) {
+			throw "$Label is missing '$Name'."
+		}
+		return $Object[$Name]
+	}
 	$property = $Object.PSObject.Properties[$Name]
 	if ($null -eq $property) {
 		throw "$Label is missing '$Name'."
