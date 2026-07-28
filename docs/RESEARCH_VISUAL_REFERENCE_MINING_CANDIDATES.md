@@ -237,11 +237,15 @@ UI layouts, animation frames, proprietary files or recognizable style package.
 
 ## Recommended Reference Portfolio
 
-The first discovery pass considered more than thirty games. The cross-examined
-portfolio below is the smallest set that still covers Battle Bog's major
-questions without treating one game as a wholesale style target.
+The first discovery pass considered more than thirty games. The table below
+records that pass before the user's quiz answers narrowed each source's role.
 
-### Core Deep-Mine Games
+### Initial Discovery Portfolio
+
+This table records the pre-quiz discovery set. It is not the execution
+portfolio. The user-calibrated scope in
+`BATTLE_BOG_VISUAL_DIRECTION_BRIEF.md` and the quotas in
+`BATTLE_BOG_VISUAL_DEEP_MINING_EXECUTION_PLAN.md` supersede it.
 
 | Game | Primary Job | Why It Earns Deep Study | Main Guardrail |
 | --- | --- | --- | --- |
@@ -542,15 +546,17 @@ direction is recorded in `docs/BATTLE_BOG_VISUAL_DIRECTION_BRIEF.md`, and the
 extraction plan is recorded in
 `docs/RESEARCH_VISUAL_DEEP_MINE_SOURCE_LEDGER.md`.
 
-1. Battlerite, SUPERVIVE, Pokemon UNITE, Temtem: Swarm and Evercore Heroes are
-   full visual anchors.
-2. Don't Starve Together, Rain World and V Rising are not full style anchors.
+1. Battlerite, SUPERVIVE and Pokemon UNITE receive full cross-cutting mines.
+2. Temtem: Swarm and Evercore Heroes remain important quiz-approved anchors
+   but receive deep specialist studies for creature surfaces/motion and world
+   finish.
+3. Don't Starve Together, Rain World and V Rising are not full style anchors.
    Their approved uses are narrow workflow, biomechanics and boundary studies.
-3. The Alligator gate keeps all four pipeline forms until direct gameplay-scale
+4. The Alligator gate keeps all four pipeline forms until direct gameplay-scale
    comparison.
-4. Specialist games remain bounded to the questions assigned in the visual
+5. Specialist games remain bounded to the questions assigned in the visual
    direction brief.
-5. Minimum target hardware remains unresolved and must be selected before final
+6. Minimum target hardware remains unresolved and must be selected before final
    production performance budgets.
 
 Deep footage extraction may now proceed. Production asset generation and

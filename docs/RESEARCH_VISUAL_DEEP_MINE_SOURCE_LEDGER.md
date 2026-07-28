@@ -25,6 +25,13 @@ It is not a list of games whose style should be copied. Each source has one
 specific responsibility, an explicit rejection boundary and a Battle Bog
 output it must help produce.
 
+Execution authority:
+
+- `docs/BATTLE_BOG_VISUAL_DEEP_MINING_EXECUTION_PLAN.md` defines quotas,
+  schemas, agent packets, stopping rules, prototype generation and the
+  user-selection gate.
+- This ledger remains the source and research-question authority.
+
 ## Research Shape
 
 ```text
@@ -59,7 +66,7 @@ ALLIGATOR -> KINGFISHER -> MOSQUITO -> REAL 3v3
 Every future observation must include:
 
 - source URL, game version when known and capture date;
-- source class: `P1`, `P2`, `S1`, `S2`, `T` or `C`;
+- source class: `P1`, `P2`, `O`, `S1`, `S2`, `T` or `C`;
 - camera type: normal player, spectator, cinematic or close-up;
 - clip bounds or timestamp;
 - evidence type: `Documented`, `Observed` or `Inferred`;
@@ -70,6 +77,7 @@ Source classes:
 
 - `P1`: primary developer, engine-owner or conference technical source;
 - `P2`: official uninterrupted gameplay at representative camera;
+- `O`: official static page, roster image or intended presentation;
 - `S1`: normal raw player gameplay;
 - `S2`: spectator or tournament footage with altered information;
 - `T`: curated or edited official showcase/trailer;
@@ -162,7 +170,7 @@ air attacks, submerged attacks and objectives.
 | Reference | Source | Class | Narrow Job | Boundary |
 | --- | --- | --- | --- | --- |
 | The Machines Arena | [Raw 4K gameplay](https://www.youtube.com/watch?v=dz46CRMcV3Y) | `S1` | Cursor-facing poses, projectile origin/path, impact and stable camera | Robotic materials and weapon identity are not transferable |
-| Hades II | [Official gameplay reveal](https://www.youtube.com/watch?v=-SnaCUsUF3E) | `T`/`P2` | Painted dimensional quality and material-impact ceiling | Do not measure ordinary combat timing from edited sequences |
+| Hades II | [Official gameplay reveal](https://www.youtube.com/watch?v=-SnaCUsUF3E) | `T` | Painted dimensional quality and material-impact ceiling | Do not measure ordinary combat timing from edited sequences |
 | Pokemon UNITE | [Normal Cinderace match](https://www.youtube.com/watch?v=IAAmPqSdP2I) | `S1` | Creature attacks, dives and teamfight occupancy | Mobile controls and plastic terrain are rejected |
 
 ## Lane B: Creature Construction
@@ -179,15 +187,15 @@ Research job:
 
 Primary sources:
 
-- [Official roster](https://unite.pokemon.com/en-us/pokemon/) (`P2` intended
+- [Official roster](https://unite.pokemon.com/en-us/pokemon/) (`O` intended
   roster presentation).
 - [Official game overview](https://unite.pokemon.com/en-us/overview/) (`P2`
   match and objective context).
 - [Charizard move page](https://unite.pokemon.com/en-us/pokemon/charizard/)
-  (`P2`, airborne grab and slam).
+  (`O`, airborne grab and slam presentation).
 - [Greninja move page](https://unite.pokemon.com/en-us/pokemon/greninja/)
-  (`P2`, frog-like posture and overhead water attack).
-- [Mew move page](https://unite.pokemon.com/en-us/pokemon/mew) (`P2`, elevation
+  (`O`, frog-like posture and overhead water attack presentation).
+- [Mew move page](https://unite.pokemon.com/en-us/pokemon/mew) (`O`, elevation
   and stealth state).
 
 Player footage:
@@ -223,8 +231,9 @@ Reject:
 
 Sources:
 
-- [Official Steam page and gameplay media](https://store.steampowered.com/app/2510960/Temtem_Swarm/)
-  (`P2`/`T` depending on clip).
+- [Official Steam page and gameplay media](https://store.steampowered.com/app/2510960/Temtem_Swarm/).
+  Classify static media as `O`, edited media as `T`, and any uninterrupted
+  representative segment as `P2`.
 
 Research job:
 
@@ -272,8 +281,9 @@ evidence.
 
 Sources:
 
-- [Official video library](https://evercoreheroes.com/videos) (`P2`/`T`).
-- [Official world overview](https://evercoreheroes.com/world/) (`P2` intended
+- [Official video library](https://evercoreheroes.com/videos). Classify each
+  sequence as `P2` or `T`; never use a combined class.
+- [Official world overview](https://evercoreheroes.com/world/) (`O` intended
   world identity).
 
 Research job:
@@ -288,7 +298,8 @@ Research job:
 Sources:
 
 - [2026 visual overhaul overview](https://albiononline.com/news/visual-overhaul-shorts)
-  (`P1`/`P2`).
+  (`P1`; split any embedded uninterrupted gameplay into a separate `P2`
+  evidence record).
 - [Biome rework developer talk](https://albiononline.com/news/devtalk-biome-rework)
   (`P1`).
 - [Creating a New World behind the scenes](https://albiononline.com/news/video-creating-new-world)

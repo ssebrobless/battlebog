@@ -195,13 +195,13 @@ materials are not a style source.
 | Battlerite | Aim, camera, attack phases, telegraphs, hit confirmation, contextual combat HUD and six-player clarity |
 | SUPERVIVE | Dimensional energy, terrain hierarchy, altitude, overlap, target reacquisition, objectives and layered information |
 | Pokemon UNITE | Creature models, heroic anatomy, size compression, readable movement, dives, attacks and roster presentation |
-| Temtem: Swarm | Creature surface economy, motion and the softer side of the target midpoint |
-| Evercore Heroes | Bright competitive world finish, terrain materials and readable dimensional units |
 
 ### Deep Specialist Lanes
 
 | Reference | Approved Scope |
 | --- | --- |
+| Temtem: Swarm | Creature surface economy, compact motion and the softer side of the target midpoint |
+| Evercore Heroes | Bright competitive world finish, terrain materials and readable dimensional units |
 | The Machines Arena | Projectiles, aim-facing, hit confirmation and camera stability |
 | Hades II | Material impacts, dimensional painted quality and signature-effect ceiling |
 | Ravenswatch | Nighttime world treatment, ecology density and painterly material boundary |
