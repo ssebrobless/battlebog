@@ -274,7 +274,10 @@ function Get-AnchorNamesForFrame {
 }
 
 function Get-RepositoryState {
-	param([string]$RepoRoot)
+	param(
+		[string]$RepoRoot,
+		[switch]$IgnorePromotionStaging
+	)
 	$head = (& git -C $RepoRoot rev-parse HEAD 2>&1).ToString().Trim().ToLowerInvariant()
 	if ($LASTEXITCODE -ne 0 -or $head -notmatch "^[a-f0-9]{40}$") {
 		throw "Could not resolve the repository HEAD."
@@ -282,6 +285,15 @@ function Get-RepositoryState {
 	$status = @(& git -C $RepoRoot status --porcelain=v1 --untracked-files=all 2>&1)
 	if ($LASTEXITCODE -ne 0) {
 		throw "Could not inspect repository cleanliness."
+	}
+	if ($IgnorePromotionStaging) {
+		$stagingPrefix = "?? tests/visual/baselines/.$PlatformSlug.staging."
+		$status = @($status | Where-Object {
+			-not ([string]$_).Replace("\", "/").StartsWith(
+				$stagingPrefix,
+				[StringComparison]::Ordinal
+			)
+		})
 	}
 	return [ordered]@{ head = $head; clean = ($status.Count -eq 0); status = @($status) }
 }
@@ -1157,7 +1169,7 @@ try {
 		Assert-FileHash (Join-Path $captureDestination $item.png_name) $item.png_sha256 "Final staged PNG '$($item.id)'"
 		Assert-FileHash (Join-Path $captureDestination $item.semantic_name) $item.semantic_sha256 "Final staged semantic '$($item.id)'"
 	}
-	$finalRepositoryState = Get-RepositoryState $repoRoot
+	$finalRepositoryState = Get-RepositoryState $repoRoot -IgnorePromotionStaging
 	Assert-PromotionRevision $repoRoot $sourceGitSha $finalRepositoryState
 	Assert-FileHash $sourceManifestPath $sourceManifestHashBefore "Source-run manifest before install"
 	Assert-FileHash $approvalPath $approvalHashBefore "Approval JSON before install"
