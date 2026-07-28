@@ -9,6 +9,9 @@ const MovementFeelScript := preload("res://scripts/sim/movement_feel.gd")
 const DamageEventScript := preload("res://scripts/sim/damage_event.gd")
 const HurtboxScript := preload("res://scripts/sim/combat/hurtbox.gd")
 const AttackTimelineScript := preload("res://scripts/sim/combat/attack_timeline.gd")
+const CreaturePresentationSnapshotScript := preload(
+	"res://scripts/sim/presentation/creature_presentation_snapshot.gd"
+)
 const PerfStats := preload("res://scripts/game/perf_stats.gd")
 const VisualStyle := preload("res://scripts/visual/visual_style.gd")
 const TurtleKitScript := preload("res://scripts/sim/kits/snapping_turtle.gd")
@@ -156,6 +159,8 @@ var secondary_resource_max := 0.0
 var latched_attacker: Node = null
 var latch_victim: Node = null
 var latch_timer := 0.0
+var latch_max_duration := 0.0
+var latch_anchor_px := Vector2.ZERO
 var latch_source := ""
 var latch_sequence_id := 0
 var latch_execute_timer := 0.0
@@ -210,6 +215,23 @@ var _primary_attack_presentation := {
 	"contact_point": null,
 }
 var _last_render_signature := ""
+var _presentation_base_snapshot: CreaturePresentationSnapshot = null
+var _presentation_current_snapshot: CreaturePresentationSnapshot = null
+var _presentation_actor_id := &""
+var _presentation_render_revision := 0
+var _presentation_cached_tick := -1
+var _presentation_cached_after_tick := false
+var _presentation_failed_tick := -1
+var _presentation_failed_after_tick := false
+var _presentation_fallback_tick := 0
+var _presentation_travel_heading := Vector2.RIGHT
+var _presentation_previous_body_heading := Vector2.RIGHT
+var _presentation_death_sequence_counter := 0
+var _presentation_active_death_sequence_id := 0
+var _presentation_death_elapsed_sec := 0.0
+var _presentation_hit_region := &""
+var _presentation_hit_timer := 0.0
+var _presentation_schema_cache: Dictionary = {}
 
 func setup(creature_arena: Node, creature_team: int, spawn_position: Vector2, next_creature_id: String, next_terrain_map: RefCounted = null) -> void:
 	arena = creature_arena
@@ -255,6 +277,8 @@ func apply_creature(next_creature_id: String) -> void:
 	latched_attacker = null
 	latch_victim = null
 	latch_timer = 0.0
+	latch_max_duration = 0.0
+	latch_anchor_px = Vector2.ZERO
 	latch_source = ""
 	latch_sequence_id = 0
 	latch_execute_timer = 0.0
@@ -283,6 +307,12 @@ func apply_creature(next_creature_id: String) -> void:
 	low_window_timer = 0.0
 	counter_hit_window_timer = 0.0
 	body_heading = last_aim_direction.normalized() if last_aim_direction != Vector2.ZERO else Vector2.RIGHT
+	_presentation_travel_heading = body_heading
+	_presentation_previous_body_heading = body_heading
+	_presentation_active_death_sequence_id = 0
+	_presentation_death_elapsed_sec = 0.0
+	_presentation_hit_region = &""
+	_presentation_hit_timer = 0.0
 	kit = _make_kit()
 	if kit != null:
 		kit.setup(self)
@@ -304,6 +334,7 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if render_hitstop_frames > 0:
 		render_hitstop_frames -= 1
+		_refresh_presentation_feedback()
 		_request_render_redraw()
 		return
 	render_counter_flash_timer = maxf(render_counter_flash_timer - delta, 0.0)
@@ -321,15 +352,23 @@ func _process(delta: float) -> void:
 	if velocity.length() > 4.0:
 		anim_walk_phase += MovementFeelScript.gait_phase_delta(velocity.length(), delta, _active_movement_profile())
 	_update_render_landing(delta)
+	_refresh_presentation_feedback()
 	_request_render_redraw()
 
 func tick_sim(delta: float) -> void:
+	if _primary_attack_simulation_tick() < 0:
+		_presentation_fallback_tick += 1
+	_tick_sim_body(delta)
+	_cache_base_presentation_snapshot(true)
+
+func _tick_sim_body(delta: float) -> void:
 	if _match_is_over():
 		if kit != null and kit.has_method("tick_match_end"):
 			kit.tick_match_end(self, delta)
 		action_policy_suppressed_buttons = 0
 		return
 	if not alive:
+		_presentation_death_elapsed_sec += maxf(delta, 0.0)
 		if arena != null and arena.has_method("uses_stock_respawn") and arena.uses_stock_respawn(self):
 			if arena.tick_stock_respawn(self, delta):
 				_respawn()
@@ -340,6 +379,9 @@ func tick_sim(delta: float) -> void:
 		return
 
 	_tick_timers(delta)
+	_presentation_hit_timer = maxf(_presentation_hit_timer - delta, 0.0)
+	if _presentation_hit_timer <= 0.0:
+		_presentation_hit_region = &""
 	if not alive or _match_is_over():
 		return
 	input_frame = filter_action_start_frame(input_frame)
@@ -401,10 +443,12 @@ func take_area_damage(amount: float, source_ability := "", source_actor: Node = 
 
 func begin_render_hitstop(_duration := 0.0) -> void:
 	render_hitstop_frames = maxi(render_hitstop_frames, HITSTOP_FRAMES)
+	_refresh_presentation_feedback()
 	_request_render_redraw(true)
 
 func begin_render_counter_flash() -> void:
 	render_counter_flash_timer = COUNTER_FLASH_SEC
+	_refresh_presentation_feedback()
 	_request_render_redraw(true)
 
 func begin_counter_hit_window(duration: float) -> void:
@@ -698,6 +742,9 @@ func take_damage_event(event: Resource) -> void:
 	amount = _apply_spore_ward_absorb(event, amount)
 	if amount > 0.0:
 		undamaged_timer = 0.0  # actual health damage resets Sky Ambush and Iron Hide windows
+		if not String(event.region).is_empty():
+			_presentation_hit_region = StringName(event.region)
+			_presentation_hit_timer = 0.10
 	if health - amount <= 0.0 and kit != null and kit.has_method("intercept_fatal_damage"):
 		if kit.intercept_fatal_damage(self, event, amount):
 			return
@@ -747,6 +794,13 @@ func take_damage_event(event: Resource) -> void:
 		if amount > 0.0 and event.source_actor != null and is_instance_valid(event.source_actor) and event.source_actor.has_method("on_damage_dealt"):
 			event.source_actor.on_damage_dealt(self, event, amount)
 	if health <= 0.0:
+		_presentation_death_sequence_counter += 1
+		_presentation_active_death_sequence_id = (
+			_presentation_death_sequence_counter
+		)
+		_presentation_death_elapsed_sec = 0.0
+		_presentation_hit_region = &""
+		_presentation_hit_timer = 0.0
 		_reset_primary_attack_timeline()
 		if event.source_actor != null and is_instance_valid(event.source_actor) and event.source_actor.has_method("on_kill"):
 			event.source_actor.on_kill(self)
@@ -941,7 +995,536 @@ func get_speed_px() -> float:
 		return _speed_px_for_flight()
 	return terrain_speed_px if terrain_speed_px > 0.0 else _terrain_target_speed_px(get_current_zone())
 
+func set_presentation_actor_id(actor_id: StringName) -> void:
+	if actor_id == _presentation_actor_id:
+		return
+	_presentation_actor_id = actor_id
+	_invalidate_presentation_snapshot()
+
+func get_presentation_snapshot() -> CreaturePresentationSnapshot:
+	if _presentation_current_snapshot == null:
+		_cache_base_presentation_snapshot(false)
+	return _presentation_current_snapshot
+
 func get_render_motion_state() -> Dictionary:
+	# Existing procedural renderers still probe this compatibility surface
+	# outside fixed ticks. R2 adapters consume get_presentation_snapshot().
+	return _build_legacy_render_motion_state().duplicate(true)
+
+func _invalidate_presentation_snapshot() -> void:
+	_presentation_base_snapshot = null
+	_presentation_current_snapshot = null
+	_presentation_cached_tick = -1
+	_presentation_cached_after_tick = false
+	_presentation_failed_tick = -1
+	_presentation_failed_after_tick = false
+
+func _presentation_simulation_tick() -> int:
+	var arena_tick := _primary_attack_simulation_tick()
+	return arena_tick if arena_tick >= 0 else _presentation_fallback_tick
+
+func _cache_base_presentation_snapshot(completed_tick: bool) -> void:
+	var simulation_tick := _presentation_simulation_tick()
+	if _presentation_base_snapshot != null \
+			and simulation_tick == _presentation_cached_tick \
+			and (_presentation_cached_after_tick or not completed_tick):
+		return
+	if _presentation_base_snapshot == null \
+			and simulation_tick == _presentation_failed_tick \
+			and (_presentation_failed_after_tick or not completed_tick):
+		return
+	var legacy := _build_legacy_render_motion_state()
+	var speed := velocity.length()
+	if speed > 0.001:
+		_presentation_travel_heading = velocity.normalized()
+	var signed_turn := _presentation_previous_body_heading.angle_to(body_heading)
+	_presentation_previous_body_heading = _normalized_heading(body_heading)
+	var current_surface := StringName(
+		_presentation_surface(
+			String(
+				current_environment_profile.get(
+					"surface",
+					EnvironmentProfileScript.SURFACE_SOLID
+				)
+			)
+		)
+	)
+	if render_terrain_transition_timer > 0.0 \
+			and not render_terrain_to_surface.is_empty():
+		current_surface = StringName(
+			_presentation_surface(render_terrain_to_surface)
+		)
+	var transition_kind := _presentation_transition_kind(
+		render_terrain_from_surface,
+		render_terrain_to_surface
+	)
+	var previous_surface := current_surface
+	var transition_progress := 0.0
+	if transition_kind != &"none":
+		previous_surface = StringName(
+			_presentation_surface(render_terrain_from_surface)
+		)
+		transition_progress = clampf(
+			1.0 - render_terrain_transition_timer / TERRAIN_TRANSITION_TELL_SEC,
+			0.0,
+			1.0
+		)
+	var visual_profile := _visual_size_profile()
+	var height_units := _visual_height_units(visual_profile)
+	var elevation_state := _presentation_elevation_state(current_surface)
+	var base_height := float(visual_profile.get("height_units", height_units))
+	var actor_id := _resolved_presentation_actor_id()
+	var latch_state := _presentation_latch_state()
+	var weakpoint_state := _presentation_weakpoint_state()
+	var feedback := _presentation_feedback_values()
+	var active_actions_value: Variant = _presentation_active_actions(actor_id)
+	if active_actions_value == null:
+		_presentation_base_snapshot = null
+		_presentation_current_snapshot = null
+		_presentation_cached_tick = simulation_tick
+		_presentation_cached_after_tick = completed_tick
+		_presentation_failed_tick = simulation_tick
+		_presentation_failed_after_tick = completed_tick
+		return
+	var data := {
+		&"schema_version": 1,
+		&"simulation_tick": simulation_tick,
+		&"render_revision": _presentation_render_revision,
+		&"actor_id": actor_id,
+		&"creature_id": StringName(creature_id),
+		&"team": team,
+		&"alive": alive,
+		&"world_position_px": global_position,
+		&"velocity_px_per_sec": velocity,
+		&"speed_px_per_sec": speed,
+		&"speed_ratio": clampf(speed / maxf(get_speed_px(), 1.0), 0.0, 1.0),
+		&"locomotion_state": _presentation_locomotion_state(speed, signed_turn),
+		&"body_heading": _normalized_heading(body_heading),
+		&"travel_heading": _normalized_heading(_presentation_travel_heading),
+		&"attention_heading": _normalized_heading(last_aim_direction),
+		&"has_strike_heading": is_primary_attack_committed(),
+		&"strike_heading": (
+			_normalized_heading(
+				get_primary_attack_snapshot().get(
+					"strike_heading",
+					Vector2.RIGHT
+				)
+			)
+			if is_primary_attack_committed()
+			else Vector2.ZERO
+		),
+		&"signed_body_turn_radians": signed_turn,
+		&"turn_intensity": clampf(absf(signed_turn) / PI, 0.0, 1.0),
+		&"body_radius_px": body_radius,
+		&"footprint_kind": (
+			&"capsule" if body_capsule_half_len_px > 0.0 else &"circle"
+		),
+		&"footprint_radius_px": _footprint_radius_px(),
+		&"capsule_half_length_px": body_capsule_half_len_px,
+		&"model_scale": float(legacy.get("model_scale", 1.0)),
+		&"visual_radius_px": float(
+			legacy.get("visual_radius_px", body_radius)
+		),
+		&"surface": current_surface,
+		&"previous_surface": previous_surface,
+		&"transition_kind": transition_kind,
+		&"transition_progress": transition_progress,
+		&"elevation_state": elevation_state,
+		&"height_units": height_units,
+		&"altitude_units": (
+			maxf(0.0, height_units - base_height)
+			if elevation_state == &"airborne" or elevation_state == &"perched"
+			else 0.0
+		),
+		&"submerged_depth_units": (
+			base_height * 0.5 if elevation_state == &"submerged" else 0.0
+		),
+		&"low_window_open": low_window_timer > 0.0,
+		&"low_window_t": (
+			1.0 - _low_window_render_t()
+			if low_window_timer > 0.0
+			else 0.0
+		),
+		&"ground_anchor_px": global_position,
+		&"active_actions": active_actions_value,
+		&"health_ratio": clampf(health / maxf(max_health, 0.001), 0.0, 1.0),
+		&"resources": {
+			&"mosquito_blood_ratio": float(
+				legacy.get("mosquito_blood_ratio", 0.0)
+			),
+		},
+		&"stealth_state": &"hidden" if stealth_timer > 0.0 else &"none",
+		&"latch_role": latch_state[&"role"],
+		&"latch_target_id": latch_state[&"target_id"],
+		&"has_latch_anchor": latch_state[&"has_anchor"],
+		&"latch_anchor_px": latch_state[&"anchor"],
+		&"grip_ratio": latch_state[&"grip_ratio"],
+		&"weakpoint_id": weakpoint_state[&"id"],
+		&"weakpoint_state": weakpoint_state[&"state"],
+		&"death_sequence_id": (
+			0 if alive else _presentation_active_death_sequence_id
+		),
+		&"death_t": (
+			0.0
+			if alive
+			else clampf(_presentation_death_elapsed_sec / 0.60, 0.0, 1.0)
+		),
+		&"respawn_remaining_sec": 0.0 if alive else maxf(respawn_timer, 0.0),
+		&"kit_cues": {
+			&"legacy_motion_state": legacy,
+		},
+		&"hitstop_frames_remaining": feedback[&"hitstop"],
+		&"counter_flash_t": feedback[&"counter_flash_t"],
+	}
+	var schema: Dictionary = _presentation_schema()
+	var snapshot := CreaturePresentationSnapshotScript.create_canonical(data)
+	if snapshot == null:
+		_presentation_failed_tick = simulation_tick
+		_presentation_failed_after_tick = completed_tick
+		push_error(
+			"Creature presentation snapshot rejected: %s"
+			% str(
+				CreaturePresentationSnapshotScript.validation_errors(
+					data,
+					schema
+				)
+			)
+		)
+		return
+	_presentation_base_snapshot = snapshot
+	_presentation_current_snapshot = snapshot
+	_presentation_cached_tick = simulation_tick
+	_presentation_cached_after_tick = completed_tick
+	_presentation_failed_tick = -1
+	_presentation_failed_after_tick = false
+
+func _refresh_presentation_feedback() -> void:
+	if _presentation_current_snapshot == null:
+		return
+	var feedback := _presentation_feedback_values()
+	if int(feedback[&"hitstop"]) \
+			== _presentation_current_snapshot.get_hitstop_frames_remaining() \
+			and is_equal_approx(
+				float(feedback[&"counter_flash_t"]),
+				_presentation_current_snapshot.get_counter_flash_t()
+			):
+		return
+	_presentation_render_revision += 1
+	var derived := _presentation_current_snapshot.with_render_feedback(
+		int(feedback[&"hitstop"]),
+		float(feedback[&"counter_flash_t"]),
+		_presentation_render_revision
+	)
+	if derived != null:
+		_presentation_current_snapshot = derived
+
+func _presentation_feedback_values() -> Dictionary:
+	return {
+		&"hitstop": clampi(render_hitstop_frames, 0, HITSTOP_FRAMES),
+		&"counter_flash_t": clampf(
+			render_counter_flash_timer / COUNTER_FLASH_SEC,
+			0.0,
+			1.0
+		),
+	}
+
+func _resolved_presentation_actor_id() -> StringName:
+	if not String(_presentation_actor_id).is_empty():
+		return _presentation_actor_id
+	if arena != null:
+		var registry: Variant = arena.get("slot_registry")
+		if registry != null and registry.has_method("get_slot_for_actor"):
+			var slot: Dictionary = registry.get_slot_for_actor(self)
+			var slot_id := String(slot.get("slot_id", ""))
+			if not slot_id.is_empty():
+				return StringName("slot:%s" % slot_id)
+	var ordinal := -1
+	if arena != null:
+		var entities_value: Variant = arena.get("entities")
+		if typeof(entities_value) == TYPE_ARRAY:
+			ordinal = (entities_value as Array).find(self)
+	if ordinal < 0 and get_parent() != null:
+		ordinal = get_parent().get_children().find(self)
+	_presentation_actor_id = StringName(
+		"fixture:arena:%d" % maxi(ordinal, 0)
+	)
+	return _presentation_actor_id
+
+func _presentation_actor_id_for(actor: Node) -> StringName:
+	if actor == null or not is_instance_valid(actor):
+		return &""
+	if actor.has_method("_resolved_presentation_actor_id"):
+		return actor._resolved_presentation_actor_id()
+	var ordinal := (
+		actor.get_parent().get_children().find(actor)
+		if actor.get_parent() != null
+		else 0
+	)
+	return StringName("fixture:external:%d" % maxi(ordinal, 0))
+
+func _normalized_heading(value: Variant) -> Vector2:
+	if value is Vector2 and (value as Vector2).is_finite() \
+			and not (value as Vector2).is_zero_approx():
+		return (value as Vector2).normalized()
+	return Vector2.RIGHT
+
+func _presentation_locomotion_state(
+	speed: float,
+	signed_turn: float
+) -> StringName:
+	if not alive:
+		return &"dead"
+	if dash_timer > 0.0 or residual_velocity.length() > 0.01 \
+			or state == CreatureStateScript.State.LATCHED:
+		return &"forced"
+	if speed <= 4.0:
+		return &"idle"
+	if velocity.normalized().dot(_normalized_heading(body_heading)) < -0.35:
+		return &"reverse"
+	if absf(signed_turn) > 0.04:
+		return &"turn"
+	return &"travel"
+
+func _presentation_transition_kind(
+	from_surface: String,
+	to_surface: String
+) -> StringName:
+	if render_terrain_transition_timer <= 0.0 \
+			or from_surface.is_empty() or to_surface.is_empty() \
+			or from_surface == to_surface:
+		return &"none"
+	var from_ground := _presentation_surface(
+		EnvironmentProfileScript.SURFACE_SOLID
+		if from_surface == EnvironmentProfileScript.SURFACE_COVER \
+			or from_surface == EnvironmentProfileScript.SURFACE_HABITAT
+		else from_surface
+	)
+	var to_ground := _presentation_surface(
+		EnvironmentProfileScript.SURFACE_SOLID
+		if to_surface == EnvironmentProfileScript.SURFACE_COVER \
+			or to_surface == EnvironmentProfileScript.SURFACE_HABITAT
+		else to_surface
+	)
+	var key := "%s>%s" % [from_ground, to_ground]
+	return {
+		"solid>mud": &"land_to_mud",
+		"mud>solid": &"mud_to_land",
+		"mud>water": &"shallow_to_deep",
+		"water>mud": &"deep_to_shallow",
+		"solid>water": &"shallow_to_deep",
+		"water>solid": &"deep_to_shallow",
+	}.get(key, &"none")
+
+func _presentation_surface(surface: String) -> String:
+	match surface:
+		TerrainMapScript.LAND:
+			return EnvironmentProfileScript.SURFACE_SOLID
+		TerrainMapScript.SHALLOW:
+			return EnvironmentProfileScript.SURFACE_MUD
+		TerrainMapScript.WATER:
+			return EnvironmentProfileScript.SURFACE_WATER
+		TerrainMapScript.COVER:
+			return EnvironmentProfileScript.SURFACE_COVER
+		TerrainMapScript.HABITAT_BLUE, TerrainMapScript.HABITAT_RED:
+			return EnvironmentProfileScript.SURFACE_HABITAT
+		_:
+			return surface
+
+func _presentation_elevation_state(surface: StringName) -> StringName:
+	if state == CreatureStateScript.State.PERCHED:
+		return &"low" if low_window_timer > 0.0 else &"perched"
+	if is_airborne():
+		return &"low" if low_window_timer > 0.0 else &"airborne"
+	var water_walk_active := get_modifier_value("water_walk", 1.0) > 1.5
+	if creature_id == "water_shrew" \
+			and surface == StringName(EnvironmentProfileScript.SURFACE_WATER) \
+			and not water_walk_active:
+		return &"submerged"
+	return &"ground"
+
+func _presentation_latch_state() -> Dictionary:
+	var role := &"none"
+	var counterpart: Node = null
+	if latch_victim != null and is_instance_valid(latch_victim):
+		role = &"attacker"
+		counterpart = latch_victim
+	elif latched_attacker != null and is_instance_valid(latched_attacker):
+		role = &"victim"
+		counterpart = latched_attacker
+	if counterpart == null:
+		return {
+			&"role": role,
+			&"target_id": &"",
+			&"has_anchor": false,
+			&"anchor": Vector2.ZERO,
+			&"grip_ratio": 0.0,
+		}
+	return {
+		&"role": role,
+		&"target_id": _presentation_actor_id_for(counterpart),
+		&"has_anchor": true,
+		&"anchor": latch_anchor_px,
+		&"grip_ratio": clampf(
+			latch_timer / maxf(latch_max_duration, 0.001),
+			0.0,
+			1.0
+		),
+	}
+
+func _presentation_weakpoint_state() -> Dictionary:
+	if _presentation_hit_timer > 0.0 \
+			and not String(_presentation_hit_region).is_empty():
+		return {
+			&"id": _presentation_hit_region,
+			&"state": &"hit",
+		}
+	var open_regions := HurtboxScript.open_regions(self)
+	open_regions.sort_custom(
+		func(left: Dictionary, right: Dictionary) -> bool:
+			return String(left.get("region", "")) \
+				< String(right.get("region", ""))
+	)
+	if not open_regions.is_empty():
+		return {
+			&"id": StringName(open_regions[0].get("region", "")),
+			&"state": &"open",
+		}
+	var attack := get_primary_attack_snapshot()
+	var warning_active := render_air_attack_startup_timer > 0.0 \
+		or String(attack.get("attack_phase_name", "")) == "startup"
+	if warning_active:
+		var warning_ids: Array[String] = []
+		var regions_value: Variant = creature_data.get("hurtbox_regions", [])
+		if typeof(regions_value) == TYPE_ARRAY:
+			for region_value: Variant in regions_value:
+				if typeof(region_value) != TYPE_DICTIONARY:
+					continue
+				var region: Dictionary = region_value
+				if String(region.get("open_when", "")) == "low_window":
+					warning_ids.append(String(region.get("name", "")))
+		warning_ids.sort()
+		if not warning_ids.is_empty() and not warning_ids[0].is_empty():
+			return {
+				&"id": StringName(warning_ids[0]),
+				&"state": &"warning",
+			}
+	return {
+		&"id": &"",
+		&"state": &"closed",
+	}
+
+func _presentation_active_actions(owner_id: StringName) -> Variant:
+	var output: Array[Dictionary] = []
+	for phase_record: Dictionary in get_authoritative_action_phase_records():
+		var action_id := StringName(phase_record.get("action_id", ""))
+		if not _presentation_action_is_catalogued(action_id):
+			return null
+		var phase := StringName(phase_record.get("phase", ""))
+		if phase == &"exit":
+			phase = &"teardown"
+		var is_primary := is_primary_attack_committed() \
+			and action_id == StringName(_primary_attack_variant)
+		var timeline := get_primary_attack_snapshot() if is_primary else {}
+		var has_strike := is_primary
+		var strike := (
+			_normalized_heading(timeline.get("strike_heading", Vector2.RIGHT))
+			if has_strike
+			else Vector2.ZERO
+		)
+		var contact_value: Variant = timeline.get("contact_point", null)
+		var has_contact := contact_value is Vector2 \
+			and (contact_value as Vector2).is_finite()
+		output.append({
+			&"action_id": action_id,
+			&"owner_id": owner_id,
+			&"sequence_id": int(phase_record.get("sequence_id", 0)),
+			&"phase": phase,
+			&"phase_t": float(timeline.get("phase_t", 0.0)),
+			&"remaining_sec": (
+				primary_attack_timeline.time_to_phase_boundary()
+				if is_primary
+				else (-1.0 if phase == &"channel" else 0.0)
+			),
+			&"variant": StringName(
+				timeline.get("attack_variant", "") if is_primary else ""
+			),
+			&"outcome": StringName(
+				timeline.get("attack_outcome_name", "none")
+				if is_primary
+				else "none"
+			),
+			&"has_strike_heading": has_strike,
+			&"strike_heading": strike,
+			&"projected_shape": _presentation_projected_shape(
+				timeline.get("projected_shape", null)
+			),
+			&"has_contact_point": has_contact,
+			&"contact_point_px": (
+				contact_value if has_contact else Vector2.ZERO
+			),
+			&"movement_multiplier": (
+				primary_attack_timeline.movement_multiplier()
+				if is_primary
+				else 1.0
+			),
+			&"blocks_action_starts": (
+				primary_attack_timeline.blocks_abilities()
+				if is_primary
+				else true
+			),
+			&"counter_vulnerable": bool(
+				phase_record.get("counter_vulnerable", false)
+			),
+		})
+	return output
+
+func _presentation_action_is_catalogued(action_id: StringName) -> bool:
+	var schema: Dictionary = _presentation_schema()
+	var vocabularies_value: Variant = schema.get("vocabularies", {})
+	if typeof(vocabularies_value) != TYPE_DICTIONARY:
+		return false
+	var values_value: Variant = (
+		vocabularies_value as Dictionary
+	).get("action_ids", [])
+	if typeof(values_value) != TYPE_ARRAY:
+		return false
+	for value: Variant in values_value:
+		if String(value) == String(action_id):
+			return true
+	return false
+
+func _presentation_schema() -> Dictionary:
+	if _presentation_schema_cache.is_empty():
+		_presentation_schema_cache = _catalog().get_presentation_schema()
+	return _presentation_schema_cache
+
+func _kit_float(property: StringName) -> float:
+	if kit == null:
+		return 0.0
+	var value: Variant = kit.get(property)
+	if typeof(value) != TYPE_INT and typeof(value) != TYPE_FLOAT:
+		return 0.0
+	return float(value)
+
+func _presentation_projected_shape(value: Variant) -> Dictionary:
+	if typeof(value) != TYPE_DICTIONARY:
+		return {&"kind": &"none"}
+	var shape: Dictionary = value
+	if String(shape.get("kind", "")) == "melee_arc":
+		return {
+			&"kind": &"arc",
+			&"origin_px": shape.get("origin", global_position),
+			&"heading": _normalized_heading(
+				shape.get("aim", last_aim_direction)
+			),
+			&"radius_px": maxf(float(shape.get("radius", 0.0)), 0.0),
+			&"half_angle_rad": acos(
+				clampf(float(shape.get("facing_dot_min", 0.15)), -1.0, 1.0)
+			),
+		}
+	return {&"kind": &"none"}
+
+func _build_legacy_render_motion_state() -> Dictionary:
 	var surface := String(current_environment_profile.get("surface", ""))
 	var moving: bool = velocity.length() > 4.0 or (input_frame != null and input_frame.move.length() > 0.05)
 	var water_walk_active: bool = get_modifier_value("water_walk", 1.0) > 1.5
@@ -997,7 +1580,7 @@ func get_render_motion_state() -> Dictionary:
 	var heron_stalk_intensity := clampf(velocity.length() / maxf(get_speed_px(), 1.0), 0.0, 1.25) if heron_stalk else 0.0
 	var newt_crawling := creature_id == "newt" and surface != EnvironmentProfileScript.SURFACE_WATER and moving and not is_airborne() and state != CreatureStateScript.State.PERCHED
 	var newt_swimming := creature_id == "newt" and surface == EnvironmentProfileScript.SURFACE_WATER and moving and not is_airborne() and state != CreatureStateScript.State.PERCHED
-	var newt_tail_lost := creature_id == "newt" and kit != null and float(kit.get("tail_lost_timer")) > 0.0
+	var newt_tail_lost := creature_id == "newt" and _kit_float(&"tail_lost_timer") > 0.0
 	var newt_motion_intensity := clampf(velocity.length() / maxf(get_speed_px(), 1.0), 0.0, 1.25) if newt_crawling or newt_swimming else 0.0
 	var water_snake_swim := creature_id == "water_snake" and surface == EnvironmentProfileScript.SURFACE_WATER and moving and not is_airborne()
 	var water_snake_land_slither := creature_id == "water_snake" and surface != EnvironmentProfileScript.SURFACE_WATER and moving and not is_airborne()
@@ -1016,10 +1599,10 @@ func get_render_motion_state() -> Dictionary:
 	var wolf_spider_skitter_intensity := clampf(velocity.length() / maxf(get_speed_px(), 1.0), 0.0, 1.25) if wolf_spider_skitter else 0.0
 	var firefly_hover := creature_id == "firefly" and moving
 	var firefly_hover_intensity := clampf(velocity.length() / maxf(get_speed_px(), 1.0), 0.0, 1.25) if firefly_hover else 0.0
-	var firefly_flash := creature_id == "firefly" and kit != null and float(kit.get("flash_timer")) > 0.0
+	var firefly_flash := creature_id == "firefly" and _kit_float(&"flash_timer") > 0.0
 	var mosquito_swarm := creature_id == "mosquito_swarm" and moving
 	var mosquito_swarm_intensity := clampf(velocity.length() / maxf(get_speed_px(), 1.0), 0.0, 1.25) if mosquito_swarm else 0.0
-	var mosquito_trail := creature_id == "mosquito_swarm" and kit != null and float(kit.get("trail_timer")) > 0.0
+	var mosquito_trail := creature_id == "mosquito_swarm" and _kit_float(&"trail_timer") > 0.0
 	var mosquito_blood_ratio := clampf(secondary_resource / maxf(secondary_resource_max, 1.0), 0.0, 1.0) if creature_id == "mosquito_swarm" else 0.0
 	var duck_paddle := creature_id == "duck" and surface == EnvironmentProfileScript.SURFACE_WATER and moving and not is_airborne()
 	var duck_waddle := creature_id == "duck" and surface != EnvironmentProfileScript.SURFACE_WATER and moving and not is_airborne()
@@ -1888,6 +2471,11 @@ func attach_to_victim(victim: Node, duration: float, source_ability: String, exe
 	latch_sequence_id += 1
 	latch_victim = victim
 	latch_timer = duration
+	latch_max_duration = maxf(duration, 0.0)
+	latch_anchor_px = HurtboxScript.surface_point(
+		HurtboxScript.hull_of(victim),
+		global_position
+	)
 	latch_source = source_ability
 	latch_execute_timer = execute_after
 	latch_created_simulation_tick = _primary_attack_simulation_tick()
@@ -1903,6 +2491,11 @@ func attach_to_victim(victim: Node, duration: float, source_ability: String, exe
 func receive_latch(attacker: Node, duration: float, source_ability: String) -> void:
 	latched_attacker = attacker
 	latch_timer = duration
+	latch_max_duration = maxf(duration, 0.0)
+	latch_anchor_px = HurtboxScript.surface_point(
+		HurtboxScript.hull_of(self),
+		attacker.global_position
+	)
 	latch_source = source_ability
 	latch_created_simulation_tick = _primary_attack_simulation_tick()
 	# Decision #33: the latched pair moves at 45% of the victim's base speed.
@@ -1927,9 +2520,14 @@ func release_latch(_reason: String) -> void:
 	if latch_victim != null and is_instance_valid(latch_victim) and latch_victim.latched_attacker == self:
 		latch_victim.latched_attacker = null
 		latch_victim.latch_move_multiplier = 1.0
+		latch_victim.latch_timer = 0.0
+		latch_victim.latch_max_duration = 0.0
+		latch_victim.latch_anchor_px = Vector2.ZERO
 	latch_victim = null
 	latched_attacker = null
 	latch_timer = 0.0
+	latch_max_duration = 0.0
+	latch_anchor_px = Vector2.ZERO
 	latch_source = ""
 	latch_execute_timer = 0.0
 	latch_created_simulation_tick = -1
@@ -1987,6 +2585,10 @@ func damage_enemy_cores_line(range_px: float, damage: float, source_ability: Str
 
 func _respawn() -> void:
 	_reset_primary_attack_timeline()
+	_presentation_active_death_sequence_id = 0
+	_presentation_death_elapsed_sec = 0.0
+	_presentation_hit_region = &""
+	_presentation_hit_timer = 0.0
 	alive = true
 	visible = true
 	health = max_health
@@ -2011,6 +2613,8 @@ func _respawn() -> void:
 	dash_timer = 0.0
 	residual_velocity = Vector2.ZERO
 	latch_created_simulation_tick = -1
+	latch_max_duration = 0.0
+	latch_anchor_px = Vector2.ZERO
 	render_landing_timer = 0.0
 	render_landing_impact = 0.0
 	render_last_hop_airborne = false
