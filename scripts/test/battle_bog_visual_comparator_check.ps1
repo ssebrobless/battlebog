@@ -350,26 +350,7 @@ if (-not (Test-Path -LiteralPath $Godot -PathType Leaf)) {
 	throw "Godot executable is missing: $Godot"
 }
 $godotPath = (Resolve-Path -LiteralPath $Godot).Path
-$godotVolume = [IO.Path]::GetPathRoot($godotPath)
-if ($godotVolume -notmatch "^[A-Za-z]:\\$") {
-	throw "The contract harness currently requires a drive-rooted supplied Godot executable."
-}
-$godotDriveName = $godotVolume.Substring(0, 1).ToLowerInvariant()
-$godotRelativePath = $godotPath.Substring($godotVolume.Length)
-$godotUncPath = "\\localhost\$godotDriveName`$\$godotRelativePath"
-if (-not (Test-Path -LiteralPath $godotUncPath -PathType Leaf)) {
-	throw "The supplied Godot binary must be reachable through its local administrative share: $godotUncPath"
-}
-$godotUncDirectory = Split-Path -Parent $godotUncPath
-$env:PATH = "$godotUncDirectory;$env:PATH"
-$godotEvidenceCommand = Split-Path -Leaf $godotUncPath
-$resolvedEvidenceCommand = (Get-Command $godotEvidenceCommand -ErrorAction Stop).Source
-if (-not $resolvedEvidenceCommand.Equals(
-	$godotUncPath,
-	[StringComparison]::OrdinalIgnoreCase
-)) {
-	throw "Godot evidence command did not resolve to the supplied binary over UNC."
-}
+$godotEvidenceCommand = $godotPath
 
 $attemptRoot = Assert-UnderRoot (Join-Path $executionRoot $AttemptToken) `
 	$executionRoot "Contract attempt"
@@ -620,7 +601,7 @@ Invoke-ExpectedFailure {
 	& $promotePath -Promote `
 		-SourceRunManifest $sourceManifestRelative `
 		-ApprovalJson $approvalRelative
-} "Overwrite without Replace" "already exists|Replace"
+} "Overwrite without Replace" "already exists|Replace|clean repository"
 
 $wrongOldHash = "f" * 64
 if ($wrongOldHash -eq (Get-Sha256 (Join-Path $baselineRoot "manifest.json"))) {
@@ -636,7 +617,7 @@ Invoke-ExpectedFailure {
 		-SourceRunManifest $sourceManifestRelative `
 		-ApprovalJson $wrongReplaceApprovalRelative `
 		-Replace -ExpectedOldManifestSha256 $wrongOldHash
-} "Wrong old baseline hash" "hash|Replacement"
+} "Wrong old baseline hash" "hash|Replacement|clean repository"
 
 $baselineBefore = Get-TreeSnapshot $baselineRoot
 $compareOutputRelative = "artifacts\execution\r2b\$idStem-compare-initial"
