@@ -349,6 +349,10 @@ New-Item -ItemType Directory -Path $runDirectory | Out-Null
 $logPath = Join-Path $runDirectory "harness.log"
 $metadataPath = Join-Path $runDirectory "run_metadata.json"
 $godotPath = Resolve-Godot $Godot
+$semanticSchemaPath = Join-Path $repoRoot "tests\visual\semantic_capture.schema.json"
+if (-not (Test-Path -LiteralPath $semanticSchemaPath -PathType Leaf)) {
+	throw "Semantic capture schema is missing: $semanticSchemaPath"
+}
 $godotManifestPath = Convert-ToGodotPath -Path $manifestPath -RepoRoot $repoRoot
 $scenePath = "res://scenes/test/VisualRegressionArena.tscn"
 
@@ -404,8 +408,13 @@ $runMetadata = [ordered]@{
 		path = (Join-Path $repoRoot "project.godot")
 		sha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "project.godot") -Algorithm SHA256).Hash.ToLowerInvariant()
 	}
+	semantic_schema = [ordered]@{
+		path = $semanticSchemaPath
+		sha256 = (Get-FileHash -LiteralPath $semanticSchemaPath -Algorithm SHA256).Hash.ToLowerInvariant()
+	}
 	godot = [ordered]@{
 		executable = $godotPath
+		executable_sha256 = (Get-FileHash -LiteralPath $godotPath -Algorithm SHA256).Hash.ToLowerInvariant()
 		version = $godotVersion
 		arguments = @($arguments)
 	}
