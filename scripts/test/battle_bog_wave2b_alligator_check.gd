@@ -40,6 +40,7 @@ func _run() -> void:
 func _check_bite_latch_release_and_whiff(arena: Node, failures: Array[String]) -> void:
 	var actor: Node = arena.player
 	var target: Node = arena.bots[0]
+	actor.apply_creature("alligator")
 	target.apply_creature("cane_toad")
 	actor.global_position = Vector2.ZERO
 	actor.last_aim_direction = Vector2.RIGHT
@@ -49,28 +50,31 @@ func _check_bite_latch_release_and_whiff(arena: Node, failures: Array[String]) -
 	var frame := InputFrameScript.new()
 	frame.aim = actor.global_position + Vector2.RIGHT * 100.0
 	frame.set_button(InputFrameScript.BUTTON_PRIMARY, true)
-	actor.set_input_frame(frame)
-	actor.kit.tick(actor, 0.016)
+	_tick_actor(arena, actor, frame, 0.016)
+	var no_early_damage: bool = is_equal_approx(target.health, target.max_health)
+	_tick_actor(arena, actor, frame, 0.30)
 	var latched: bool = actor.latch_victim == target and target.latched_attacker == actor
 	var damaged: bool = target.health < target.max_health
-	var bite_gap: bool = actor.primary_timer > 1.7
+	var bite_gap: bool = actor.primary_timer > 1.45
 	var start_position: Vector2 = target.global_position
-	actor.tick_sim(0.5)
+	_tick_actor(arena, actor, frame, 0.05)
 	var dragged: bool = target.global_position.distance_to(start_position) > 0.1
 	var release := InputFrameScript.new()
 	release.aim = target.global_position
-	actor.set_input_frame(release)
-	actor.tick_sim(0.05)
+	_tick_actor(arena, actor, release, 0.05)
 	var released: bool = actor.latch_victim == null and target.latched_attacker == null
 
+	_tick_actor(arena, actor, release, 0.50)
 	actor.primary_timer = 0.0
 	target.global_position = Vector2(260.0, 80.0)
-	actor.set_input_frame(frame)
-	actor.kit.tick(actor, 0.016)
-	var whiff_gap: bool = actor.primary_timer > 1.7 and actor.latch_victim == null
+	_tick_actor(arena, actor, frame, 0.016)
+	_tick_actor(arena, actor, frame, 0.30)
+	_tick_actor(arena, actor, frame, 0.10)
+	var whiff_gap: bool = actor.primary_timer > 1.35 and actor.latch_victim == null
 	var whiff_pose: bool = bool(actor.get_render_motion_state().get("off_balance_pose", false))
-	if not latched or not damaged or not bite_gap or not dragged or not released or not whiff_gap or not whiff_pose:
-		failures.append("Alligator bite should capsule-latch, damage, drag, release on primary up, and whiff into readable 1.8s punish; latched=%s damaged=%s bite_gap=%s dragged=%s released=%s whiff_gap=%s whiff_pose=%s timer=%.2f" % [
+	if not no_early_damage or not latched or not damaged or not bite_gap or not dragged or not released or not whiff_gap or not whiff_pose:
+		failures.append("Alligator bite should wait for active, capsule-latch, damage once, drag, release on real primary up, and expose whiff recovery; early=%s latched=%s damaged=%s bite_gap=%s dragged=%s released=%s whiff_gap=%s whiff_pose=%s timer=%.2f" % [
+			str(no_early_damage),
 			str(latched),
 			str(damaged),
 			str(bite_gap),
@@ -80,6 +84,7 @@ func _check_bite_latch_release_and_whiff(arena: Node, failures: Array[String]) -
 			str(whiff_pose),
 			actor.primary_timer
 		])
+	_tick_actor(arena, actor, release, 0.80)
 
 func _check_death_roll_water_gate(arena: Node, failures: Array[String]) -> void:
 	var actor: Node = arena.player
@@ -222,3 +227,8 @@ func _zone_point(arena: Node, zone: String) -> Vector2:
 				if String(arena.terrain_map.get_zone_at(point)) == zone:
 					return point
 	return Vector2.ZERO
+
+func _tick_actor(arena: Node, actor: Node, frame: Resource, delta: float) -> void:
+	arena.simulation_tick += 1
+	actor.set_input_frame(frame)
+	actor.tick_sim(delta)

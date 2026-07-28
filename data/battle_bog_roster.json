@@ -162,6 +162,34 @@
       "diet": "carnivore",
       "footprint": {"shape": "capsule", "radius_units": 0.9, "length_units": 3.0},
       "stats": {"health": 1500, "speed": 1.3, "swim_time_sec": 20, "regen_per_sec": 20, "primary_damage": 70, "attack_interval_sec": 1.8, "range": "1 unit mouth contact"},
+      "primary_attack_timelines": {
+        "bite": {
+          "startup": 0.30,
+          "active": 0.10,
+          "recovery": {
+            "hit": 0.40,
+            "whiff": 0.80,
+            "released": 0.40,
+            "interrupted": 0.50
+          },
+          "movement_mult": {
+            "startup": 1.0,
+            "active": 1.0,
+            "recovery": 1.0
+          },
+          "blocks_abilities": {
+            "startup": true,
+            "active": false,
+            "recovery": false
+          },
+          "phase_tags": {
+            "startup": ["warning"],
+            "active": ["contact"],
+            "recovery": ["punishable"]
+          },
+          "aim_policy": "locked_at_acceptance"
+        }
+      },
       "primary": "Single-target burst bite latch; hold LMB to drag for 3 seconds before release.",
       "abilities": [
         {"slot": "Q", "name": "Death Roll", "summary": "If grabbed enemy is in water, roll for 5 seconds and deal 30 damage per second.", "cooldown_after_sec": 5},

@@ -13,16 +13,44 @@ const ACTION_BUTTONS := (
 	| InputFrameScript.BUTTON_ABILITY_Q
 	| InputFrameScript.BUTTON_ABILITY_E
 )
+const SWITCH_TIMELINE_CONFIG := {
+	"startup": 10.0,
+	"active": 0.1,
+	"recovery": {
+		"hit": 0.1,
+		"whiff": 0.1,
+		"released": 0.1,
+		"interrupted": 0.1,
+	},
+	"movement_mult": {
+		"startup": 1.0,
+		"active": 1.0,
+		"recovery": 1.0,
+	},
+	"blocks_abilities": {
+		"startup": false,
+		"active": false,
+		"recovery": false,
+	},
+	"phase_tags": {
+		"startup": [],
+		"active": [],
+		"recovery": [],
+	},
+	"cooldown_sec": 10.0,
+}
 
 
 class ActionLocalInput:
 	extends Node
 
+	var buttons := ACTION_BUTTONS
+
 	func build_frame(aim: Vector2) -> Resource:
 		var frame: Resource = InputFrameScript.new()
 		frame.move = Vector2(0.5, -0.25)
 		frame.aim = aim
-		frame.buttons = ACTION_BUTTONS
+		frame.buttons = buttons
 		return frame
 
 
@@ -43,6 +71,13 @@ class ActionBotBrain:
 
 	func reset_actor(_actor: Node) -> void:
 		pass
+
+
+class NoopResolver:
+	extends RefCounted
+
+	func resolve() -> Dictionary:
+		return {"outcome": "whiff", "hit_count": 0}
 
 
 func _initialize() -> void:
@@ -107,6 +142,10 @@ func _run() -> void:
 		original_bot_brain,
 		failures
 	)
+	var invalid_routing_suppression_ok := _check_invalid_routing_suppression(
+		arena,
+		failures
+	)
 	var rejected_registry_ok := _check_rejected_registry_transfers(arena, failures)
 	var lifecycle_rejection_ok := _check_lifecycle_rejections(arena, failures)
 
@@ -120,15 +159,17 @@ func _run() -> void:
 		and forward_ok
 		and backward_ok
 		and unregistered_reset_ok
+		and invalid_routing_suppression_ok
 		and rejected_registry_ok
 		and lifecycle_rejection_ok
 	)
 	print(
-		"switch_transaction initial=%s forward=%s backward=%s registry_rejections=%s lifecycle_rejections=%s"
+		"switch_transaction initial=%s forward=%s backward=%s invalid_routing=%s registry_rejections=%s lifecycle_rejections=%s"
 		% [
 			str(initial_ok),
 			str(forward_ok),
 			str(backward_ok),
+			str(invalid_routing_suppression_ok),
 			str(rejected_registry_ok),
 			str(lifecycle_rejection_ok)
 		]
@@ -149,6 +190,44 @@ func _check_successful_switch(
 	var from_actor: Node = arena.player_squad[from_index]
 	var to_actor: Node = arena.player_squad[to_index]
 	_seed_brain_caches(brain, from_actor, to_actor)
+	var timeline_data: Dictionary = from_actor.creature_data.duplicate(true)
+	timeline_data["primary_attack_timelines"] = {
+		"switch_probe": SWITCH_TIMELINE_CONFIG.duplicate(true),
+	}
+	from_actor.creature_data = timeline_data
+	var target_timeline_data: Dictionary = to_actor.creature_data.duplicate(true)
+	target_timeline_data["primary_attack_timelines"] = {
+		"switch_probe": SWITCH_TIMELINE_CONFIG.duplicate(true),
+	}
+	to_actor.creature_data = target_timeline_data
+	var source_was_committed: bool = from_actor.is_primary_attack_committed()
+	var target_was_committed: bool = to_actor.is_primary_attack_committed()
+	if not source_was_committed:
+		from_actor.primary_timer = 0.0
+	if not target_was_committed:
+		to_actor.primary_timer = 0.0
+	var source_resolver := NoopResolver.new()
+	var target_resolver := NoopResolver.new()
+	var source_timeline_accepted := false
+	if not source_was_committed:
+		source_timeline_accepted = from_actor.request_primary_attack(
+			"switch_probe",
+			{"label": label, "role": "source"},
+			Callable(source_resolver, "resolve")
+		)
+	var target_timeline_accepted := false
+	if not target_was_committed:
+		target_timeline_accepted = to_actor.request_primary_attack(
+			"switch_probe",
+			{"label": label, "role": "target"},
+			Callable(target_resolver, "resolve")
+		)
+	var source_sequence_before := int(
+		from_actor.get_primary_attack_snapshot().get("attack_sequence_id", 0)
+	)
+	var target_sequence_before := int(
+		to_actor.get_primary_attack_snapshot().get("attack_sequence_id", 0)
+	)
 
 	arena.bot_brain = brain
 	arena._set_active_squad_index(to_index, false)
@@ -162,6 +241,24 @@ func _check_successful_switch(
 	)
 	var caches_ok := _brain_caches_clear(brain, from_actor) \
 		and _brain_caches_clear(brain, to_actor)
+	var source_timeline_after_switch: Dictionary = from_actor.get_primary_attack_snapshot()
+	var target_timeline_after_switch: Dictionary = to_actor.get_primary_attack_snapshot()
+	var timeline_switch_ok: bool = (
+		(source_was_committed or source_timeline_accepted)
+		and (target_was_committed or target_timeline_accepted)
+		and from_actor.is_primary_attack_committed()
+		and to_actor.is_primary_attack_committed()
+		and int(source_timeline_after_switch.get("attack_sequence_id", 0))
+			== source_sequence_before
+		and int(target_timeline_after_switch.get("attack_sequence_id", 0))
+			== target_sequence_before
+		and int(source_timeline_after_switch.get("attack_started_tick", -1)) >= 0
+		and int(source_timeline_after_switch.get("attack_started_tick", -1))
+			<= int(arena.simulation_tick)
+		and int(target_timeline_after_switch.get("attack_started_tick", -1)) >= 0
+		and int(target_timeline_after_switch.get("attack_started_tick", -1))
+			<= int(arena.simulation_tick)
+	)
 	if not immediate_ok:
 		failures.append(
 			(
@@ -177,6 +274,17 @@ func _check_successful_switch(
 		)
 	if not caches_ok:
 		failures.append("%s switch should clear BotBrain caches for both transitioned actors" % label)
+	if not timeline_switch_ok:
+		failures.append(
+			"%s switch must preserve both committed attack timelines; source=%d/%s target=%d/%s"
+			% [
+				label,
+				source_sequence_before,
+				str(source_timeline_after_switch),
+				target_sequence_before,
+				str(target_timeline_after_switch),
+			]
+		)
 
 	var action_brain := ActionBotBrain.new()
 	action_brain.mark_actor(from_actor)
@@ -185,11 +293,25 @@ func _check_successful_switch(
 
 	var from_frame: Resource = from_actor.input_frame
 	var to_frame: Resource = to_actor.input_frame
-	var neutral_frames_ok := (
+	var source_timeline_after_neutral: Dictionary = from_actor.get_primary_attack_snapshot()
+	var target_timeline_after_neutral: Dictionary = to_actor.get_primary_attack_snapshot()
+	var timelines_survive_neutral: bool = (
+		from_actor.is_primary_attack_committed()
+		and to_actor.is_primary_attack_committed()
+		and int(source_timeline_after_neutral.get("attack_sequence_id", 0))
+			== source_sequence_before
+		and int(target_timeline_after_neutral.get("attack_sequence_id", 0))
+			== target_sequence_before
+	)
+	var neutral_frames_ok: bool = (
 		from_frame != null
 		and to_frame != null
 		and int(from_frame.buttons) == 0
 		and int(to_frame.buttons) == 0
+		and int(from_frame.suppressed_buttons) == int(arena.SWITCH_RELEASE_BUTTONS)
+		and int(to_frame.suppressed_buttons) == int(arena.SWITCH_RELEASE_BUTTONS)
+		and not from_frame.is_intentional_release(InputFrameScript.BUTTON_PRIMARY)
+		and not to_frame.is_intentional_release(InputFrameScript.BUTTON_PRIMARY)
 	)
 	var tokens_consumed_ok: bool = (
 		not arena.switch_action_neutral_ticks.has(from_actor.get_instance_id())
@@ -208,14 +330,89 @@ func _check_successful_switch(
 			)
 			% [
 				label,
-				str(from_frame.buttons if from_frame != null else null),
-				str(to_frame.buttons if to_frame != null else null),
+				str(
+					{
+						"buttons": from_frame.buttons,
+						"suppressed": from_frame.suppressed_buttons,
+					}
+					if from_frame != null
+					else null
+				),
+				str(
+					{
+						"buttons": to_frame.buttons,
+						"suppressed": to_frame.suppressed_buttons,
+					}
+					if to_frame != null
+					else null
+				),
 				str(arena.switch_action_neutral_ticks)
 			]
 		)
+	if not timelines_survive_neutral:
+		failures.append(
+			"%s action-neutral transfer frame must not cancel either committed timeline"
+			% label
+		)
+
+	arena._feed_registered_inputs()
+	var held_gate_frame: Resource = to_actor.input_frame
+	var held_gate_ok: bool = (
+		held_gate_frame != null
+		and int(held_gate_frame.buttons) == 0
+		and int(held_gate_frame.suppressed_buttons) == ACTION_BUTTONS
+		and not held_gate_frame.is_intentional_release(InputFrameScript.BUTTON_PRIMARY)
+		and int(arena.switch_release_mask) == ACTION_BUTTONS
+	)
+	if not held_gate_ok:
+		failures.append(
+			"%s held switch-release gate should suppress exactly held action bits; frame=%s mask=%d"
+			% [
+				label,
+				str(
+					{
+						"buttons": held_gate_frame.buttons,
+						"suppressed": held_gate_frame.suppressed_buttons,
+					}
+					if held_gate_frame != null
+					else null
+				),
+				int(arena.switch_release_mask),
+			]
+		)
+
+	var action_local: ActionLocalInput = arena.local_input
+	action_local.buttons = 0
+	arena._feed_registered_inputs()
+	var released_frame: Resource = to_actor.input_frame
+	var genuine_release_ok: bool = (
+		released_frame != null
+		and int(released_frame.buttons) == 0
+		and int(released_frame.suppressed_buttons) == 0
+		and released_frame.is_intentional_release(InputFrameScript.BUTTON_PRIMARY)
+		and int(arena.switch_release_mask) == 0
+	)
+	action_local.buttons = ACTION_BUTTONS
+	if not genuine_release_ok:
+		failures.append(
+			"%s physical button-up should clear the gate and remain intentional; frame=%s mask=%d"
+			% [
+				label,
+				str(
+					{
+						"buttons": released_frame.buttons,
+						"suppressed": released_frame.suppressed_buttons,
+					}
+					if released_frame != null
+					else null
+				),
+				int(arena.switch_release_mask),
+			]
+		)
 	arena.bot_brain = brain
-	return contract_ok and immediate_ok and caches_ok \
-		and neutral_frames_ok and tokens_consumed_ok and routing_ok
+	return contract_ok and immediate_ok and caches_ok and timeline_switch_ok \
+		and neutral_frames_ok and tokens_consumed_ok and routing_ok \
+		and timelines_survive_neutral and held_gate_ok and genuine_release_ok
 
 
 func _check_rejected_registry_transfers(arena: Node, failures: Array[String]) -> bool:
@@ -243,6 +440,32 @@ func _check_rejected_registry_transfers(arena: Node, failures: Array[String]) ->
 			]
 		)
 	return same_slot_ok and nonlocal_ok
+
+
+func _check_invalid_routing_suppression(
+	arena: Node,
+	failures: Array[String]
+) -> bool:
+	var frame: Resource = arena._invalid_routing_frame()
+	var ok: bool = frame != null \
+		and int(frame.buttons) == 0 \
+		and int(frame.suppressed_buttons) == int(arena.SWITCH_RELEASE_BUTTONS) \
+		and not frame.is_intentional_release(InputFrameScript.BUTTON_PRIMARY) \
+		and not frame.is_intentional_release(InputFrameScript.BUTTON_ABILITY_Q) \
+		and not frame.is_intentional_release(InputFrameScript.BUTTON_ABILITY_E)
+	if not ok:
+		failures.append(
+			"invalid routing fallback must be an action-suppressed blank frame; frame=%s"
+			% str(
+				{
+					"buttons": frame.buttons,
+					"suppressed": frame.suppressed_buttons,
+				}
+				if frame != null
+				else null
+			)
+		)
+	return ok
 
 
 func _check_lifecycle_rejections(arena: Node, failures: Array[String]) -> bool:

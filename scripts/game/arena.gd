@@ -2222,7 +2222,11 @@ func _feed_registered_inputs() -> void:
 	for actor_key in routed_frames:
 		var actor: Node = routed_actors.get(actor_key, null)
 		if actor != null and is_instance_valid(actor):
-			var frame: Resource = routed_frames[actor_key] if routing_valid else InputFrameScript.new()
+			var frame: Resource = (
+				routed_frames[actor_key]
+				if routing_valid
+				else _invalid_routing_frame()
+			)
 			var controller_kind := String(routed_controller_kinds.get(actor_key, ""))
 			var actor_alive: bool = actor.has_method("is_alive") and actor.is_alive()
 			if routing_valid and actor_alive:
@@ -2257,6 +2261,11 @@ func _feed_registered_inputs() -> void:
 		"ai": ai_count,
 		"actor_ids": routed_frames.keys()
 	}
+
+func _invalid_routing_frame() -> Resource:
+	var frame: Resource = InputFrameScript.new()
+	frame.suppress_buttons(SWITCH_RELEASE_BUTTONS)
+	return frame
 
 func get_input_routing_state() -> Dictionary:
 	return last_input_routing_state.duplicate(true)
@@ -2439,12 +2448,14 @@ func _apply_switch_release_gate(frame: Resource) -> void:
 	if frame == null or switch_release_mask == 0:
 		return
 	switch_release_mask &= int(frame.buttons)
+	frame.suppress_buttons(switch_release_mask)
 	frame.buttons &= ~switch_release_mask
 
 func _apply_switch_action_neutral_gate(actor: Node, frame: Resource) -> void:
 	if actor == null or frame == null:
 		return
 	if int(switch_action_neutral_ticks.get(actor.get_instance_id(), 0)) > 0:
+		frame.suppress_buttons(SWITCH_RELEASE_BUTTONS)
 		frame.buttons = 0
 
 func _advance_switch_action_neutral_ticks(consumed_actor_ids: Array) -> void:
@@ -3928,6 +3939,8 @@ func _tick_telegraphs(delta: float) -> void:
 
 func _draw_telegraphs() -> void:
 	for telegraph in telegraphs:
+		if not _telegraph_should_draw(telegraph):
+			continue
 		var remaining: float = telegraph.get("remaining", 0.0)
 		var duration: float = maxf(telegraph.get("duration", 0.01), 0.01)
 		var fade := clampf(remaining / duration, 0.0, 1.0)
@@ -4083,7 +4096,19 @@ func _spawn_vfx_for_event(event: Dictionary) -> void:
 				"type": "windup",
 				"actor": actor,
 				"aim": event.get("aim", Vector2.RIGHT),
+				"locked_aim": event.get(
+					"locked_aim",
+					event.get("aim", Vector2.RIGHT)
+				),
 				"reach_px": event.get("reach_px", 24.0),
+				"radius": event.get("radius", event.get("reach_px", 24.0)),
+				"facing_dot_min": event.get("facing_dot_min", 0.15),
+				"origin": event.get(
+					"origin",
+					event.get("position", Vector2.ZERO)
+				),
+				"attack_sequence_id": int(event.get("attack_sequence_id", 0)),
+				"timeline_owned": bool(event.get("timeline_owned", false)),
 				"color": Color(1.0, 0.78, 0.22, 0.95),
 				"duration": duration,
 				"remaining": duration
@@ -4093,8 +4118,20 @@ func _spawn_vfx_for_event(event: Dictionary) -> void:
 				"type": "swing",
 				"actor": event.get("actor", null),
 				"position": event.get("position", event.get("center", Vector2.ZERO)),
+				"origin": event.get(
+					"origin",
+					event.get("position", event.get("center", Vector2.ZERO))
+				),
 				"aim": event.get("aim", Vector2.RIGHT),
+				"locked_aim": event.get(
+					"locked_aim",
+					event.get("aim", Vector2.RIGHT)
+				),
 				"reach_px": event.get("reach_px", 24.0),
+				"radius": event.get("radius", event.get("reach_px", 24.0)),
+				"facing_dot_min": event.get("facing_dot_min", 0.15),
+				"attack_sequence_id": int(event.get("attack_sequence_id", 0)),
+				"timeline_owned": bool(event.get("timeline_owned", false)),
 				"color": Color(1.0, 0.93, 0.55, 0.95),
 				"duration": 0.3,
 				"remaining": 0.3
@@ -4285,7 +4322,17 @@ func _telegraph_lost_anchor(telegraph: Dictionary) -> bool:
 	match String(telegraph.get("type", "")):
 		"windup":
 			var actor = telegraph.get("actor", null)
-			return actor == null or not is_instance_valid(actor)
+			if actor == null or not is_instance_valid(actor):
+				return true
+			if bool(telegraph.get("timeline_owned", false)):
+				if not actor.has_method("get_primary_attack_snapshot"):
+					return true
+				var snapshot: Dictionary = actor.get_primary_attack_snapshot()
+				return int(snapshot.get("attack_sequence_id", 0)) \
+					!= int(telegraph.get("attack_sequence_id", 0)) \
+					or String(snapshot.get("attack_phase_name", "")) \
+					!= "startup"
+			return false
 		"aura_follow":
 			var target = telegraph.get("target", null)
 			return target == null or not is_instance_valid(target)
@@ -4294,6 +4341,9 @@ func _telegraph_lost_anchor(telegraph: Dictionary) -> bool:
 			var victim = telegraph.get("victim", null)
 			return attacker == null or victim == null or not is_instance_valid(attacker) or not is_instance_valid(victim)
 	return false
+
+func _telegraph_should_draw(telegraph: Dictionary) -> bool:
+	return not _telegraph_lost_anchor(telegraph)
 
 func _remove_tether(attacker: Variant, victim: Variant) -> void:
 	for i in range(telegraphs.size() - 1, -1, -1):
@@ -4306,6 +4356,35 @@ func _remove_tether(attacker: Variant, victim: Variant) -> void:
 func _draw_windup_telegraph(telegraph: Dictionary, color: Color) -> void:
 	var actor = telegraph.get("actor", null)
 	if actor == null or not is_instance_valid(actor):
+		return
+	if bool(telegraph.get("timeline_owned", false)):
+		var shape := _timeline_windup_shape(telegraph, actor)
+		if shape.is_empty():
+			return
+		var duration: float = maxf(
+			float(telegraph.get("duration", 0.01)),
+			0.01
+		)
+		var remaining: float = float(telegraph.get("remaining", 0.0))
+		var progress := 1.0 - clampf(remaining / duration, 0.0, 1.0)
+		var origin: Vector2 = shape["origin"]
+		var aim: Vector2 = shape["aim"]
+		var radius := float(shape["radius"])
+		var facing_dot_min := clampf(
+			float(shape["facing_dot_min"]),
+			-1.0,
+			1.0
+		)
+		var spread := acos(facing_dot_min) * 2.0
+		var danger := Color(1.0, 0.42, 0.2, 0.35 + progress * 0.55)
+		_draw_cone(
+			origin,
+			aim,
+			radius,
+			spread,
+			Color(1.0, 0.75, 0.3, 0.3)
+		)
+		_draw_cone(origin, aim, radius * progress, spread, danger)
 		return
 	var aim: Vector2 = telegraph.get("aim", Vector2.RIGHT)
 	var actor_aim_value: Variant = actor.get("last_aim_direction")
@@ -4324,6 +4403,18 @@ func _draw_windup_telegraph(telegraph: Dictionary, color: Color) -> void:
 	_draw_cone(actor.global_position, aim.normalized(), reach * progress, PI * 0.52, danger)
 
 func _draw_swing_telegraph(telegraph: Dictionary, color: Color) -> void:
+	if bool(telegraph.get("timeline_owned", false)):
+		var shape := _timeline_swing_shape(telegraph)
+		if shape.is_empty():
+			return
+		_draw_cone(
+			shape["origin"],
+			shape["aim"],
+			float(shape["radius"]),
+			acos(float(shape["facing_dot_min"])) * 2.0,
+			color
+		)
+		return
 	var actor = telegraph.get("actor", null)
 	var origin: Vector2 = actor.global_position if actor != null and is_instance_valid(actor) else telegraph.get("position", Vector2.ZERO)
 	var aim: Vector2 = telegraph.get("aim", Vector2.RIGHT)
@@ -4331,6 +4422,83 @@ func _draw_swing_telegraph(telegraph: Dictionary, color: Color) -> void:
 		return
 	var reach: float = float(telegraph.get("reach_px", 24.0))
 	_draw_cone(origin, aim.normalized(), reach, PI * 0.7, color)
+
+func _timeline_swing_shape(telegraph: Dictionary) -> Dictionary:
+	var origin_value: Variant = telegraph.get(
+		"origin",
+		telegraph.get("position", Vector2.ZERO)
+	)
+	var aim_value: Variant = telegraph.get(
+		"locked_aim",
+		telegraph.get("aim", Vector2.RIGHT)
+	)
+	var radius_value: Variant = telegraph.get(
+		"radius",
+		telegraph.get("reach_px", 24.0)
+	)
+	var facing_value: Variant = telegraph.get("facing_dot_min", 0.15)
+	if typeof(origin_value) != TYPE_VECTOR2 \
+		or not (origin_value as Vector2).is_finite() \
+		or typeof(aim_value) != TYPE_VECTOR2 \
+		or not (aim_value as Vector2).is_finite() \
+		or (aim_value as Vector2).is_zero_approx() \
+		or not _telegraph_finite_number(radius_value) \
+		or float(radius_value) < 0.0 \
+		or not _telegraph_finite_number(facing_value):
+		return {}
+	var facing_dot_min := float(facing_value)
+	if facing_dot_min < -1.0 or facing_dot_min > 1.0:
+		return {}
+	return {
+		"origin": origin_value,
+		"aim": (aim_value as Vector2).normalized(),
+		"radius": float(radius_value),
+		"facing_dot_min": facing_dot_min,
+	}
+
+func _timeline_windup_shape(telegraph: Dictionary, actor: Node) -> Dictionary:
+	var origin_value: Variant = telegraph.get(
+		"origin",
+		telegraph.get("position", Vector2.ZERO)
+	)
+	var radius_value: Variant = telegraph.get(
+		"radius",
+		telegraph.get("reach_px", 24.0)
+	)
+	var facing_value: Variant = telegraph.get("facing_dot_min", 0.15)
+	var snapshot: Dictionary = actor.get_primary_attack_snapshot()
+	var projected_value: Variant = snapshot.get("projected_shape", {})
+	if typeof(projected_value) == TYPE_DICTIONARY:
+		var projected: Dictionary = projected_value
+		origin_value = projected.get("origin", origin_value)
+		radius_value = projected.get("radius", radius_value)
+		facing_value = projected.get("facing_dot_min", facing_value)
+	var aim_value: Variant = telegraph.get(
+		"locked_aim",
+		telegraph.get("aim", Vector2.RIGHT)
+	)
+	if typeof(origin_value) != TYPE_VECTOR2 \
+		or not (origin_value as Vector2).is_finite() \
+		or typeof(aim_value) != TYPE_VECTOR2 \
+		or not (aim_value as Vector2).is_finite() \
+		or (aim_value as Vector2).is_zero_approx() \
+		or not _telegraph_finite_number(radius_value) \
+		or float(radius_value) < 0.0 \
+		or not _telegraph_finite_number(facing_value):
+		return {}
+	var facing_dot_min := float(facing_value)
+	if facing_dot_min < -1.0 or facing_dot_min > 1.0:
+		return {}
+	return {
+		"origin": origin_value,
+		"aim": (aim_value as Vector2).normalized(),
+		"radius": float(radius_value),
+		"facing_dot_min": facing_dot_min,
+	}
+
+static func _telegraph_finite_number(value: Variant) -> bool:
+	return (typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT) \
+		and is_finite(float(value))
 
 func _draw_cone(origin: Vector2, aim: Vector2, reach: float, spread: float, color: Color) -> void:
 	var points := TelegraphGeometry.cone_polygon_points(origin, aim, reach, spread)

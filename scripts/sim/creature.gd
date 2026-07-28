@@ -8,6 +8,7 @@ const EnvironmentProfileScript := preload("res://scripts/sim/environment_profile
 const MovementFeelScript := preload("res://scripts/sim/movement_feel.gd")
 const DamageEventScript := preload("res://scripts/sim/damage_event.gd")
 const HurtboxScript := preload("res://scripts/sim/combat/hurtbox.gd")
+const AttackTimelineScript := preload("res://scripts/sim/combat/attack_timeline.gd")
 const PerfStats := preload("res://scripts/game/perf_stats.gd")
 const VisualStyle := preload("res://scripts/visual/visual_style.gd")
 const TurtleKitScript := preload("res://scripts/sim/kits/snapping_turtle.gd")
@@ -184,6 +185,15 @@ var respawn_timer := 0.0
 var respawn_duration := 5.0
 var hunger := HUNGER_MAX
 var hunger_satiated := false
+var primary_attack_timeline: RefCounted = AttackTimelineScript.new()
+var _primary_attack_resolver := Callable()
+var _primary_attack_variant := ""
+var _primary_attack_presentation := {
+	"attack_sequence_id": 0,
+	"revision": 0,
+	"projected_shape": null,
+	"contact_point": null,
+}
 var _last_render_signature := ""
 
 func setup(creature_arena: Node, creature_team: int, spawn_position: Vector2, next_creature_id: String, next_terrain_map: RefCounted = null) -> void:
@@ -195,6 +205,7 @@ func setup(creature_arena: Node, creature_team: int, spawn_position: Vector2, ne
 	apply_creature(next_creature_id)
 
 func apply_creature(next_creature_id: String) -> void:
+	_reset_primary_attack_timeline()
 	creature_id = next_creature_id
 	creature_data = _catalog().get_creature(creature_id)
 	stats = creature_data.get("stats", {})
@@ -323,9 +334,16 @@ func tick_sim(delta: float) -> void:
 	_tick_latch(delta)
 	if _match_is_over():
 		return
+	_refresh_primary_attack_presentation()
+	_advance_primary_attack_timeline(delta)
+	if not alive or _match_is_over():
+		return
 	if kit != null and kit.has_method("tick"):
 		var original_input_frame: Resource = input_frame
-		if input_frame != null and not can_use_abilities():
+		if input_frame != null and (
+			not can_use_abilities()
+			or primary_attack_timeline.blocks_abilities()
+		):
 			input_frame = _without_ability_buttons(input_frame)
 		kit.tick(self, delta)
 		input_frame = original_input_frame
@@ -403,6 +421,138 @@ func can_act() -> bool:
 
 func can_use_abilities() -> bool:
 	return can_act() and _modifier_value("ability_use_mult", 1.0) > 0.5
+
+func request_primary_attack(variant: String, payload: Dictionary, resolver: Callable) -> bool:
+	if variant.is_empty() \
+		or not alive \
+		or not can_act() \
+		or primary_timer > 0.0 \
+		or not resolver.is_valid():
+		return false
+
+	var timelines_value: Variant = creature_data.get("primary_attack_timelines", {})
+	if typeof(timelines_value) != TYPE_DICTIONARY:
+		return false
+	var timeline_definitions: Dictionary = timelines_value
+	var config_value: Variant = timeline_definitions.get(variant, {})
+	if typeof(config_value) != TYPE_DICTIONARY:
+		return false
+	var config: Dictionary = config_value
+	if config.is_empty():
+		return false
+
+	var simulation_tick := _primary_attack_simulation_tick()
+	var time_scale := _modifier_value("attack_speed_mult", 1.0)
+	if simulation_tick < 0 or not _is_positive_finite_number(time_scale):
+		return false
+	var strike_heading := get_aim_direction()
+	if not primary_attack_timeline.start(
+		config,
+		payload,
+		strike_heading,
+		simulation_tick,
+		time_scale
+	):
+		return false
+
+	_primary_attack_variant = variant
+	_primary_attack_resolver = resolver
+	_begin_primary_attack_presentation(
+		int(primary_attack_timeline.snapshot()["attack_sequence_id"])
+	)
+	primary_timer = _primary_attack_cooldown_sec(config) / time_scale
+	_request_render_redraw(true)
+	return true
+
+func interrupt_primary_attack(reason: String, hard := false) -> Dictionary:
+	var event: Dictionary = primary_attack_timeline.interrupt(
+		reason,
+		_primary_attack_simulation_tick(),
+		hard
+	)
+	if bool(event.get("changed", false)):
+		if hard:
+			_primary_attack_resolver = Callable()
+			_primary_attack_variant = ""
+			_clear_primary_attack_presentation()
+			_request_render_redraw(true)
+	return event
+
+func get_primary_attack_snapshot() -> Dictionary:
+	var snapshot: Dictionary = primary_attack_timeline.snapshot()
+	snapshot["attack_variant"] = _primary_attack_variant
+	snapshot["presentation_sequence_id"] = int(
+		_primary_attack_presentation["attack_sequence_id"]
+	)
+	snapshot["presentation_revision"] = int(
+		_primary_attack_presentation["revision"]
+	)
+	snapshot["contact_point"] = _copy_primary_attack_presentation_variant(
+		_primary_attack_presentation["contact_point"]
+	)
+	snapshot["projected_shape"] = _copy_primary_attack_presentation_variant(
+		_primary_attack_presentation["projected_shape"]
+	)
+	return snapshot
+
+func update_primary_attack_presentation(
+	attack_sequence_id: int,
+	updates: Dictionary
+) -> bool:
+	if primary_attack_timeline.is_idle() or updates.is_empty():
+		return false
+	var timeline_snapshot: Dictionary = primary_attack_timeline.snapshot()
+	if attack_sequence_id <= 0 \
+		or attack_sequence_id != int(timeline_snapshot["attack_sequence_id"]) \
+		or attack_sequence_id != int(
+			_primary_attack_presentation["attack_sequence_id"]
+		):
+		return false
+
+	var allowed := {
+		"projected_shape": true,
+		"contact_point": true,
+	}
+	var copied_updates := {}
+	for key_value: Variant in updates:
+		if typeof(key_value) != TYPE_STRING and typeof(key_value) != TYPE_STRING_NAME:
+			return false
+		var key := String(key_value)
+		if not allowed.has(key):
+			return false
+		var value: Variant = updates[key_value]
+		if key == "projected_shape":
+			if value != null and typeof(value) != TYPE_DICTIONARY:
+				return false
+		elif key == "contact_point":
+			if value != null and (
+				typeof(value) != TYPE_VECTOR2
+				or not (value as Vector2).is_finite()
+			):
+				return false
+		var copy_result := _copy_primary_attack_presentation_value(value)
+		if not bool(copy_result["valid"]):
+			return false
+		copied_updates[key] = copy_result["value"]
+
+	var presentation_changed := false
+	for key: String in copied_updates:
+		if _primary_attack_presentation[key] != copied_updates[key]:
+			_primary_attack_presentation[key] = copied_updates[key]
+			presentation_changed = true
+	if not presentation_changed:
+		return true
+	_primary_attack_presentation["revision"] = int(
+		_primary_attack_presentation["revision"]
+	) + 1
+	_request_render_redraw()
+	return true
+
+func is_primary_attack_committed() -> bool:
+	return not primary_attack_timeline.is_idle()
+
+func primary_attack_has_phase_tag(tag: String) -> bool:
+	return primary_attack_timeline.has_phase_tag(tag)
 
 func open_low_window(duration: float) -> void:
 	low_window_timer = duration
@@ -494,6 +644,7 @@ func take_damage_event(event: Resource) -> void:
 		if amount > 0.0 and event.source_actor != null and is_instance_valid(event.source_actor) and event.source_actor.has_method("on_damage_dealt"):
 			event.source_actor.on_damage_dealt(self, event, amount)
 	if health <= 0.0:
+		_reset_primary_attack_timeline()
 		if event.source_actor != null and is_instance_valid(event.source_actor) and event.source_actor.has_method("on_kill"):
 			event.source_actor.on_kill(self)
 		if arena != null and arena.has_method("record_death"):
@@ -620,12 +771,20 @@ func _apply_own_anim(event_type: String, payload: Dictionary) -> void:
 		return
 	match event_type:
 		"windup_started":
-			anim_windup_duration = maxf(float(payload.get("duration", 0.001)), 0.001)
-			anim_windup_timer = anim_windup_duration
+			var windup_duration := maxf(
+				float(payload.get("duration", 0.001)),
+				0.001
+			)
 			if payload.get("counter_hit_window", false) == true:
-				begin_counter_hit_window(anim_windup_duration)
+				begin_counter_hit_window(windup_duration)
+			if payload.get("timeline_owned", false) == true:
+				return
+			anim_windup_duration = windup_duration
+			anim_windup_timer = anim_windup_duration
 		"attack_swung":
 			break_stealth()
+			if payload.get("timeline_owned", false) == true:
+				return
 			anim_attack_duration = clampf(_attack_interval_sec() * 0.55, 0.32, 0.6)
 			anim_attack_timer = anim_attack_duration
 			anim_attack_reach = float(payload.get("reach_px", body_radius * 1.5))
@@ -798,6 +957,7 @@ func get_render_motion_state() -> Dictionary:
 	var airborne_visual := is_airborne() or state == CreatureStateScript.State.PERCHED
 	var height_shadow_alpha := _height_shadow_alpha(visual_height_units, low_window_t, airborne_visual)
 	var height_shadow_radius_mult := _height_shadow_radius_mult(visual_height_units, low_window_t, airborne_visual)
+	var timeline_snapshot: Dictionary = get_primary_attack_snapshot()
 	return {
 		"creature_id": creature_id,
 		"terrain_surface": surface,
@@ -923,7 +1083,10 @@ func get_render_motion_state() -> Dictionary:
 		"escape_dash": creature_id == "crayfish" and backward_dash,
 		"ambush_pose": _has_modifier_source("Ambush"),
 		"high_walk_pose": alligator_high_walk,
-		"off_balance_pose": _has_modifier_source("Whiff Recovery"),
+		"off_balance_pose": creature_id == "alligator" \
+			and String(timeline_snapshot["attack_variant"]) == "bite" \
+			and String(timeline_snapshot["attack_phase_name"]) == "recovery" \
+			and String(timeline_snapshot["attack_outcome_name"]) == "whiff",
 		"perched_pose": state == CreatureStateScript.State.PERCHED,
 		"landing_t": landing_t,
 		"landing_impact": render_landing_impact,
@@ -950,7 +1113,22 @@ func get_render_motion_state() -> Dictionary:
 		"alligator_death_roll_pose": alligator_death_roll,
 		"toxic_recoil_t": toxic_recoil_t,
 		"escape_curl_t": escape_curl_t,
-		"plunge_t": plunge_t
+		"plunge_t": plunge_t,
+		"attack_phase": timeline_snapshot["attack_phase"],
+		"attack_phase_name": timeline_snapshot["attack_phase_name"],
+		"phase_t": timeline_snapshot["phase_t"],
+		"attack_sequence_id": timeline_snapshot["attack_sequence_id"],
+		"attack_started_tick": timeline_snapshot["attack_started_tick"],
+		"attack_active_tick": timeline_snapshot["attack_active_tick"],
+		"attack_outcome": timeline_snapshot["attack_outcome"],
+		"attack_outcome_name": timeline_snapshot["attack_outcome_name"],
+		"attack_variant": timeline_snapshot["attack_variant"],
+		"strike_heading": timeline_snapshot["strike_heading"],
+		"hit_count": timeline_snapshot["hit_count"],
+		"hit_region": timeline_snapshot["hit_region"],
+		"contact_point": timeline_snapshot["contact_point"],
+		"projected_shape": timeline_snapshot["projected_shape"],
+		"interruption_reason": timeline_snapshot["interruption_reason"]
 	}
 
 func _visual_size_profile() -> Dictionary:
@@ -1039,7 +1217,11 @@ func _move_from_input(delta: float) -> void:
 	if _modifier_value("forward_back_only", 1.0) > 1.5 and move != Vector2.ZERO:
 		var axis := last_aim_direction.normalized()
 		move = axis * move.dot(axis)
-	var speed_multiplier := latch_move_multiplier * _modifier_value("move_speed_mult", 1.0)
+	var speed_multiplier: float = (
+		latch_move_multiplier
+		* _modifier_value("move_speed_mult", 1.0)
+		* primary_attack_timeline.movement_multiplier()
+	)
 	if dash_timer > 0.0:
 		velocity = dash_velocity
 		steering_velocity = Vector2.ZERO
@@ -1215,7 +1397,10 @@ func get_ability_delta(delta: float) -> float:
 func add_modifier(source: String, values: Dictionary, duration: float) -> void:
 	if _modifier_value("cc_immune", 1.0) > 1.5 and _is_disruption_modifier(values):
 		return
+	var could_act := can_act()
 	modifiers.append({"source": source, "values": values, "remaining": duration})
+	if could_act and not can_act():
+		interrupt_primary_attack(source, false)
 
 func add_capped_modifier(source: String, values: Dictionary, duration: float, max_stacks: int) -> void:
 	if max_stacks > 0:
@@ -1255,9 +1440,158 @@ func _without_ability_buttons(frame: Resource) -> Resource:
 	filtered.move = frame.move
 	filtered.aim = frame.aim
 	filtered.buttons = int(frame.buttons)
+	filtered.suppressed_buttons = int(frame.suppressed_buttons)
 	filtered.set_button(InputFrameScript.BUTTON_ABILITY_Q, false)
 	filtered.set_button(InputFrameScript.BUTTON_ABILITY_E, false)
 	return filtered
+
+func _advance_primary_attack_timeline(delta: float) -> void:
+	if primary_attack_timeline.is_idle():
+		return
+	var simulation_tick := _primary_attack_simulation_tick()
+	var snapshot: Dictionary = primary_attack_timeline.snapshot()
+	if simulation_tick < 0 or simulation_tick <= int(snapshot["attack_started_tick"]):
+		return
+	primary_attack_timeline.advance(delta, simulation_tick, _primary_attack_resolver)
+	if primary_attack_timeline.is_idle():
+		_reset_primary_attack_timeline()
+	_request_render_redraw()
+
+func _reset_primary_attack_timeline() -> void:
+	primary_attack_timeline.reset()
+	_primary_attack_resolver = Callable()
+	_primary_attack_variant = ""
+	_clear_primary_attack_presentation()
+
+func _refresh_primary_attack_presentation() -> void:
+	if kit != null and kit.has_method("refresh_primary_attack_presentation"):
+		kit.refresh_primary_attack_presentation(self)
+
+func _begin_primary_attack_presentation(attack_sequence_id: int) -> void:
+	_primary_attack_presentation = {
+		"attack_sequence_id": attack_sequence_id,
+		"revision": int(_primary_attack_presentation.get("revision", 0)) + 1,
+		"projected_shape": null,
+		"contact_point": null,
+	}
+
+func _clear_primary_attack_presentation() -> void:
+	_primary_attack_presentation = {
+		"attack_sequence_id": 0,
+		"revision": int(_primary_attack_presentation.get("revision", 0)) + 1,
+		"projected_shape": null,
+		"contact_point": null,
+	}
+
+static func _copy_primary_attack_presentation_variant(value: Variant) -> Variant:
+	var result := _copy_primary_attack_presentation_value(value)
+	return result["value"] if bool(result["valid"]) else null
+
+static func _copy_primary_attack_presentation_value(
+	value: Variant,
+	ancestors: Array = []
+) -> Dictionary:
+	var value_type := typeof(value)
+	match value_type:
+		TYPE_NIL, TYPE_BOOL, TYPE_INT, TYPE_STRING, TYPE_STRING_NAME:
+			return {"valid": true, "value": value}
+		TYPE_FLOAT:
+			return {"valid": is_finite(float(value)), "value": value}
+		TYPE_VECTOR2:
+			return {
+				"valid": (value as Vector2).is_finite(),
+				"value": value,
+			}
+		TYPE_VECTOR2I, TYPE_RECT2I, TYPE_VECTOR3I, TYPE_VECTOR4I:
+			return {"valid": true, "value": value}
+		TYPE_RECT2:
+			var rect: Rect2 = value
+			return {
+				"valid": rect.position.is_finite() and rect.size.is_finite(),
+				"value": value,
+			}
+		TYPE_VECTOR3:
+			return {"valid": (value as Vector3).is_finite(), "value": value}
+		TYPE_VECTOR4:
+			return {"valid": (value as Vector4).is_finite(), "value": value}
+		TYPE_COLOR:
+			var color: Color = value
+			return {
+				"valid": is_finite(color.r)
+					and is_finite(color.g)
+					and is_finite(color.b)
+					and is_finite(color.a),
+				"value": value,
+			}
+		TYPE_TRANSFORM2D:
+			return {
+				"valid": (value as Transform2D).is_finite(),
+				"value": value,
+			}
+		TYPE_TRANSFORM3D:
+			return {
+				"valid": (value as Transform3D).is_finite(),
+				"value": value,
+			}
+		TYPE_ARRAY, TYPE_DICTIONARY:
+			for ancestor: Variant in ancestors:
+				if is_same(ancestor, value):
+					return {"valid": false, "value": null}
+			var nested_ancestors := ancestors.duplicate()
+			nested_ancestors.append(value)
+			if value_type == TYPE_ARRAY:
+				var copied_array: Array = []
+				for item: Variant in value:
+					var item_copy := _copy_primary_attack_presentation_value(
+						item,
+						nested_ancestors
+					)
+					if not bool(item_copy["valid"]):
+						return {"valid": false, "value": null}
+					copied_array.append(item_copy["value"])
+				return {"valid": true, "value": copied_array}
+			var copied_dictionary := {}
+			for key: Variant in value:
+				var key_copy := _copy_primary_attack_presentation_value(
+					key,
+					nested_ancestors
+				)
+				var item_copy := _copy_primary_attack_presentation_value(
+					value[key],
+					nested_ancestors
+				)
+				if not bool(key_copy["valid"]) or not bool(item_copy["valid"]):
+					return {"valid": false, "value": null}
+				copied_dictionary[key_copy["value"]] = item_copy["value"]
+			return {"valid": true, "value": copied_dictionary}
+		_:
+			return {"valid": false, "value": null}
+
+func _primary_attack_simulation_tick() -> int:
+	if arena == null or not is_instance_valid(arena):
+		return -1
+	var tick_value: Variant = arena.get("simulation_tick")
+	if typeof(tick_value) != TYPE_INT:
+		return -1
+	return int(tick_value)
+
+func _primary_attack_cooldown_sec(config: Dictionary) -> float:
+	var configured: Variant = config.get("cooldown_sec", null)
+	if _is_positive_finite_number(configured):
+		return float(configured)
+	var interval: Variant = stats.get("attack_interval_sec", null)
+	if _is_positive_finite_number(interval):
+		return float(interval)
+	var rate: Variant = stats.get("attack_rate_per_sec", null)
+	if _is_positive_finite_number(rate):
+		return 1.0 / float(rate)
+	return 1.0
+
+static func _is_positive_finite_number(value: Variant) -> bool:
+	if typeof(value) != TYPE_INT and typeof(value) != TYPE_FLOAT:
+		return false
+	var number := float(value)
+	return number > 0.0 and is_finite(number)
 
 func break_latch(_reason: String) -> void:
 	if latched_attacker != null and is_instance_valid(latched_attacker) and latched_attacker.has_method("release_latch"):
@@ -1331,9 +1665,10 @@ func on_kill(_victim: Node) -> void:
 	if kit != null and kit.has_method("on_kill"):
 		kit.on_kill(self, _victim)
 
-func damage_enemy_cores_near(center: Vector2, radius: float, damage: float, source_ability: String) -> void:
-	if arena == null or not arena.has_method("record_core_damage"):
-		return
+func damage_enemy_cores_near(center: Vector2, radius: float, damage: float, source_ability: String) -> Array[Node]:
+	var damaged_cores: Array[Node] = []
+	if arena == null or not is_instance_valid(arena) or not arena.has_method("record_core_damage"):
+		return damaged_cores
 	var final_damage := modify_outgoing_damage(damage)
 	for core_team in arena.cores.keys():
 		var core = arena.cores[core_team]
@@ -1344,6 +1679,8 @@ func damage_enemy_cores_near(center: Vector2, radius: float, damage: float, sour
 		if core.global_position.distance_to(center) <= radius + core.radius:
 			core.take_damage(final_damage, team, self)
 			arena.record_core_damage(team, final_damage, self)
+			damaged_cores.append(core)
+	return damaged_cores
 
 func damage_enemy_cores_line(range_px: float, damage: float, source_ability: String) -> void:
 	if arena == null:
@@ -1363,6 +1700,7 @@ func damage_enemy_cores_line(range_px: float, damage: float, source_ability: Str
 			arena.record_core_damage(team, final_damage, self)
 
 func _respawn() -> void:
+	_reset_primary_attack_timeline()
 	alive = true
 	visible = true
 	health = max_health
@@ -1874,6 +2212,18 @@ func _render_signature() -> String:
 	parts.append(str(_timer_bucket(render_air_attack_startup_timer, render_air_attack_startup_duration)))
 	parts.append(str(_timer_bucket(anim_attack_timer, anim_attack_duration)))
 	parts.append(str(_timer_bucket(anim_windup_timer, anim_windup_duration)))
+	var attack_snapshot := get_primary_attack_snapshot()
+	parts.append(str(attack_snapshot["attack_sequence_id"]))
+	parts.append(str(attack_snapshot["attack_phase"]))
+	parts.append(str(_quantized_ratio(
+		float(attack_snapshot["phase_t"]),
+		1.0,
+		RENDER_TIMER_BUCKETS
+	)))
+	parts.append(str(attack_snapshot["attack_outcome"]))
+	parts.append(str(_angle_bucket(attack_snapshot["strike_heading"])))
+	parts.append(str(attack_snapshot["presentation_sequence_id"]))
+	parts.append(str(attack_snapshot["presentation_revision"]))
 	parts.append(str(_timer_bucket(low_window_timer, LOW_WINDOW_VISUAL_MAX_SEC)))
 	parts.append(str(_quantized_ratio(wrong_terrain_seconds, WRONG_TERRAIN_GRACE_SEC, RENDER_TIMER_BUCKETS)))
 	parts.append(str(_angle_bucket(get_body_axis())))

@@ -93,6 +93,9 @@ static func draw_battle_creature(canvas: CanvasItem, creature_id: String, team: 
 	var forward := facing.normalized()
 	if forward == Vector2.ZERO:
 		forward = Vector2.RIGHT
+	var alligator_bite_pose := alligator_bite_pose(anim, forward)
+	if bool(alligator_bite_pose["active"]):
+		forward = alligator_bite_pose["forward"]
 	var outline := _with_alpha(VisualGrammar.team_color(team), alpha)
 	var skin: Dictionary = SKINS.get(creature_id, {})
 	var model_scale := clampf(float(anim.get("model_scale", 1.0)), 0.72, 1.35)
@@ -131,12 +134,18 @@ static func draw_battle_creature(canvas: CanvasItem, creature_id: String, team: 
 		body_offset = -forward * maxf(visual_radius * 0.4, 6.0) * windup_t * lunge_scale
 	elif off_balance:
 		body_offset = -forward * maxf(visual_radius * 0.18, 3.0) + Vector2(-forward.y, forward.x) * maxf(visual_radius * 0.12, 2.0)
+	if bool(alligator_bite_pose["active"]):
+		var pose_side := Vector2(-forward.y, forward.x)
+		body_offset = forward * visual_radius * float(alligator_bite_pose["translation_forward"]) \
+			+ pose_side * visual_radius * float(alligator_bite_pose["translation_side"])
 
 	var rock := 0.0
 	if moving and attack_t < 0.0:
 		rock = sin(walk_phase) * 0.1
 	if off_balance and attack_t < 0.0 and windup_t < 0.0:
 		rock += 0.16
+	if bool(alligator_bite_pose["active"]):
+		rock = float(alligator_bite_pose["rotation"])
 	var rocked_forward := forward.rotated(rock)
 	var side := Vector2(-rocked_forward.y, rocked_forward.x)
 	var movement_bob := Vector2(0.0, -float(anim.get("movement_bob", 0.0))) if moving and attack_t < 0.0 else Vector2.ZERO
@@ -325,6 +334,135 @@ static func _strike_curve(t: float) -> float:
 	if t < 0.6:
 		return 1.0
 	return 1.0 - (t - 0.6) / 0.4
+
+static func alligator_bite_pose(anim: Dictionary, fallback_forward: Vector2) -> Dictionary:
+	var safe_forward := fallback_forward.normalized()
+	if safe_forward == Vector2.ZERO:
+		safe_forward = Vector2.RIGHT
+	var pose := {
+		"active": false,
+		"mode": "none",
+		"forward": safe_forward,
+		"phase_t": 0.0,
+		"translation_forward": 0.0,
+		"translation_side": 0.0,
+		"rotation": 0.0,
+		"longitudinal_scale": 1.0,
+		"lateral_scale": 1.0,
+		"head_extension": 0.0,
+		"jaw_open": 0.0,
+		"jaw_clamp": 0.0,
+		"brace": 0.0,
+		"off_balance": 0.0,
+		"recoil": 0.0,
+	}
+	if String(anim.get("creature_id", "")) != "alligator":
+		return pose
+	if bool(anim.get("alligator_death_roll_pose", false)):
+		pose["mode"] = "death_roll"
+		return pose
+
+	var attack_variant := String(anim.get("attack_variant", ""))
+	var phase_name := String(anim.get("attack_phase_name", "idle"))
+	var bite_timeline_active := attack_variant == "bite" and phase_name != "idle"
+	var strike_heading_value: Variant = anim.get("strike_heading", safe_forward)
+	if bite_timeline_active \
+		and typeof(strike_heading_value) == TYPE_VECTOR2 \
+		and not (strike_heading_value as Vector2).is_zero_approx():
+		safe_forward = (strike_heading_value as Vector2).normalized()
+	pose["forward"] = safe_forward
+
+	var jaw_hold := bool(anim.get("alligator_jaw_hold_pose", false)) \
+		or bool(anim.get("latch_attacker_pose", false))
+	if jaw_hold:
+		pose.merge({
+			"active": true,
+			"mode": "jaw_hold",
+			"translation_forward": 0.16,
+			"longitudinal_scale": 1.04,
+			"lateral_scale": 0.96,
+			"head_extension": 0.24,
+			"jaw_open": 0.04,
+			"jaw_clamp": 1.0,
+			"brace": 0.72,
+		}, true)
+		return pose
+	if attack_variant != "bite":
+		return pose
+
+	var phase_t := clampf(float(anim.get("phase_t", 0.0)), 0.0, 1.0)
+	var outcome_name := String(anim.get("attack_outcome_name", "none"))
+	pose["phase_t"] = phase_t
+	match phase_name:
+		"startup":
+			var anticipation := phase_t * phase_t * (3.0 - 2.0 * phase_t)
+			pose.merge({
+				"active": true,
+				"mode": "startup",
+				"translation_forward": -0.22 * anticipation,
+				"longitudinal_scale": 1.0 - 0.10 * anticipation,
+				"lateral_scale": 1.0 + 0.08 * anticipation,
+				"head_extension": -0.16 * anticipation,
+				"jaw_open": 0.18 + 0.72 * anticipation,
+				"brace": 0.35 + 0.65 * anticipation,
+			}, true)
+		"active":
+			pose.merge({
+				"active": true,
+				"mode": "active",
+				"translation_forward": 0.18,
+				"longitudinal_scale": 1.08,
+				"lateral_scale": 0.94,
+				"head_extension": 0.34,
+				"jaw_open": 0.42,
+				"jaw_clamp": phase_t,
+				"brace": 0.82,
+			}, true)
+		"recovery":
+			match outcome_name:
+				"whiff":
+					var imbalance := lerpf(1.0, 0.58, phase_t)
+					pose.merge({
+						"active": true,
+						"mode": "whiff",
+						"translation_forward": lerpf(0.12, -0.10, phase_t),
+						"translation_side": 0.15 * imbalance,
+						"rotation": 0.24 * imbalance,
+						"longitudinal_scale": 1.06,
+						"lateral_scale": 0.95,
+						"head_extension": lerpf(0.30, 0.08, phase_t),
+						"jaw_open": lerpf(0.78, 0.34, phase_t),
+						"brace": 0.34,
+						"off_balance": imbalance,
+					}, true)
+				"interrupted":
+					var recoil := lerpf(1.0, 0.32, phase_t)
+					pose.merge({
+						"active": true,
+						"mode": "interrupted",
+						"translation_forward": -0.30 * recoil,
+						"translation_side": -0.05 * recoil,
+						"rotation": -0.12 * recoil,
+						"longitudinal_scale": 1.0 - 0.08 * recoil,
+						"lateral_scale": 1.0 + 0.06 * recoil,
+						"head_extension": -0.13 * recoil,
+						"jaw_open": 0.24 * recoil,
+						"brace": 0.78,
+						"recoil": recoil,
+					}, true)
+				"hit":
+					pose.merge({
+						"active": true,
+						"mode": "hit_hold",
+						"translation_forward": lerpf(0.15, 0.04, phase_t),
+						"longitudinal_scale": lerpf(1.04, 1.0, phase_t),
+						"lateral_scale": lerpf(0.96, 1.0, phase_t),
+						"head_extension": lerpf(0.22, 0.06, phase_t),
+						"jaw_open": 0.05,
+						"jaw_clamp": lerpf(1.0, 0.52, phase_t),
+						"brace": lerpf(0.76, 0.34, phase_t),
+					}, true)
+	return pose
 
 # ---------- bases ----------
 
@@ -1387,6 +1525,15 @@ static func _base_serpent(canvas: CanvasItem, radius: float, forward: Vector2, s
 static func _base_croc(canvas: CanvasItem, radius: float, forward: Vector2, side: Vector2, skin: Dictionary, walk_phase: float, moving: bool, anim: Dictionary = {}) -> void:
 	var main: Color = skin.get("main", Color(0.2, 0.26, 0.17))
 	var dark: Color = skin.get("dark", main.darkened(0.35))
+	var bite_pose := alligator_bite_pose(anim, forward)
+	var bite_active := bool(bite_pose["active"])
+	var longitudinal_scale := float(bite_pose["longitudinal_scale"]) if bite_active else 1.0
+	var lateral_scale := float(bite_pose["lateral_scale"]) if bite_active else 1.0
+	var head_extension := float(bite_pose["head_extension"]) if bite_active else 0.0
+	var jaw_open := float(bite_pose["jaw_open"]) if bite_active else 0.0
+	var jaw_clamp := float(bite_pose["jaw_clamp"]) if bite_active else 0.0
+	var bite_brace := float(bite_pose["brace"]) if bite_active else 0.0
+	var bite_mode := String(bite_pose["mode"])
 	var tail_sway := float(anim.get("tail_sway", 1.0))
 	var crawl_weight := float(anim.get("crawl_weight", 0.0))
 	var ambush_pose := bool(anim.get("ambush_pose", false))
@@ -1431,6 +1578,37 @@ static func _base_croc(canvas: CanvasItem, radius: float, forward: Vector2, side
 		canvas.draw_arc(Vector2.ZERO, radius * 1.08, PI * 0.22, PI * 1.48, 34, Color(churn.r, churn.g, churn.b, 0.18), maxf(radius * 0.1, 1.5))
 		for roll_side: float in [-1.0, 1.0]:
 			canvas.draw_line(-forward * radius * 0.7 + side * roll_side * radius * 0.55, forward * radius * 1.15 - side * roll_side * radius * 0.36, Color(churn.r, churn.g, churn.b, 0.22), maxf(radius * 0.08, 1.3))
+	elif bite_mode == "whiff":
+		var skid_color := Color(0.34, 0.28, 0.18, 0.24)
+		var imbalance := float(bite_pose["off_balance"])
+		for skid_side: float in [-1.0, 1.0]:
+			var skid_start := -forward * radius * 0.18 + side * skid_side * radius * 0.58
+			canvas.draw_line(
+				skid_start,
+				skid_start - forward * radius * (0.52 + 0.28 * imbalance) - side * skid_side * radius * 0.08,
+				skid_color,
+				maxf(radius * 0.06, 1.1)
+			)
+			canvas.draw_arc(
+				skid_start - forward * radius * 0.24,
+				radius * (0.18 + 0.07 * imbalance),
+				PI * 0.08,
+				PI * 0.92,
+				10,
+				Color(skid_color.r, skid_color.g, skid_color.b, skid_color.a * 0.72),
+				maxf(radius * 0.045, 1.0)
+			)
+	elif bite_mode == "interrupted":
+		var recoil_color := Color(0.3, 0.25, 0.17, 0.2)
+		var recoil := float(bite_pose["recoil"])
+		for recoil_side: float in [-1.0, 1.0]:
+			var recoil_start := forward * radius * 0.24 + side * recoil_side * radius * 0.52
+			canvas.draw_line(
+				recoil_start,
+				recoil_start + forward * radius * (0.34 + 0.18 * recoil),
+				recoil_color,
+				maxf(radius * 0.05, 1.0)
+			)
 	if water_cruise_pose:
 		var cruise_water := Color(0.36, 0.62, 0.74, 0.2 + 0.1 * water_cruise_intensity)
 		for wake_side: float in [-1.0, 1.0]:
@@ -1449,7 +1627,8 @@ static func _base_croc(canvas: CanvasItem, radius: float, forward: Vector2, side
 	for i in 5:
 		var t := float(i) / 4.0
 		var tail_lift := side * sin(walk_phase * 0.7) * radius * 0.08 * (1.0 - t) if high_walk_pose else Vector2.ZERO
-		var tail_point := -forward * radius * 0.7 + tail_direction * radius * (0.3 + t * 1.5) + tail_lift
+		var tail_point := -forward * radius * 0.7 * longitudinal_scale \
+			+ tail_direction * radius * (0.3 + t * 1.5) * longitudinal_scale + tail_lift
 		canvas.draw_circle(tail_point, radius * lerpf(0.34, 0.08, t), dark)
 		if i < 4:
 			canvas.draw_line(tail_point, tail_point + tail_direction.rotated(PI * 0.5) * radius * 0.12, dark.darkened(0.15), 1.5)
@@ -1460,6 +1639,8 @@ static func _base_croc(canvas: CanvasItem, radius: float, forward: Vector2, side
 		var stride_mult := 1.45 if high_walk_pose else 1.0
 		var step := (sin(walk_phase + (PI if leg_index % 2 == 0 else 0.0)) * radius * 0.1 * (1.0 - crawl_weight * 0.35) * stride_mult) if moving else 0.0
 		var leg_reach := 0.9 if high_walk_pose else 0.78
+		if bite_active:
+			leg_reach += bite_brace * 0.08
 		if water_cruise_pose:
 			step *= 0.42
 			leg_reach = 0.66
@@ -1475,7 +1656,10 @@ static func _base_croc(canvas: CanvasItem, radius: float, forward: Vector2, side
 	var body_points := PackedVector2Array()
 	for i in 16:
 		var body_angle := TAU * float(i) / 16.0
-		body_points.append(forward * cos(body_angle) * radius * (0.95 + crawl_weight * 0.05) + side * sin(body_angle) * radius * (0.6 - crawl_weight * 0.06))
+		body_points.append(
+			forward * cos(body_angle) * radius * (0.95 + crawl_weight * 0.05) * longitudinal_scale
+			+ side * sin(body_angle) * radius * (0.6 - crawl_weight * 0.06) * lateral_scale
+		)
 	canvas.draw_colored_polygon(body_points, dark)
 	var inner := PackedVector2Array()
 	for point in body_points:
@@ -1488,21 +1672,44 @@ static func _base_croc(canvas: CanvasItem, radius: float, forward: Vector2, side
 			canvas.draw_circle(scute, maxf(radius * 0.06, 1.5), dark.lightened(0.08))
 
 	# Long snout with nostrils and raised eyes.
+	var snout_tip := 1.55 + head_extension
+	var snout_nose := 1.62 + head_extension
 	var snout_points := PackedVector2Array([
 		forward * radius * 0.7 + side * radius * 0.3,
-		forward * radius * 1.55 + side * radius * 0.18,
-		forward * radius * 1.62,
-		forward * radius * 1.55 - side * radius * 0.18,
+		forward * radius * snout_tip + side * radius * 0.18,
+		forward * radius * snout_nose,
+		forward * radius * snout_tip - side * radius * 0.18,
 		forward * radius * 0.7 - side * radius * 0.3
 	])
 	canvas.draw_colored_polygon(snout_points, main)
-	if jaw_hold_pose or death_roll_pose:
-		var clamp_color := Color(0.96, 0.82, 0.42, 0.36 if jaw_hold_pose else 0.48)
+	if jaw_open > 0.01 and not death_roll_pose:
+		var mouth_half_width := radius * (0.04 + jaw_open * 0.13)
+		var mouth_root := forward * radius * 0.82
+		var mouth_tip := forward * radius * (snout_tip - 0.05)
+		canvas.draw_colored_polygon(PackedVector2Array([
+			mouth_root + side * mouth_half_width,
+			mouth_tip + side * mouth_half_width * 0.58,
+			mouth_tip - side * mouth_half_width * 0.58,
+			mouth_root - side * mouth_half_width,
+		]), Color(0.16, 0.06, 0.05, 0.88))
+		for tooth_side: float in [-1.0, 1.0]:
+			for tooth_index in 3:
+				var tooth_t := 0.24 + float(tooth_index) * 0.24
+				var tooth_center := mouth_root.lerp(mouth_tip, tooth_t) \
+					+ side * tooth_side * mouth_half_width * 0.72
+				canvas.draw_circle(
+					tooth_center,
+					maxf(radius * 0.027, 0.8),
+					Color(0.9, 0.86, 0.68, 0.9)
+				)
+	if jaw_hold_pose or death_roll_pose or jaw_clamp > 0.01:
+		var clamp_strength := maxf(jaw_clamp, 1.0 if jaw_hold_pose or death_roll_pose else 0.0)
+		var clamp_color := Color(0.96, 0.82, 0.42, (0.28 + clamp_strength * 0.12) if not death_roll_pose else 0.48)
 		canvas.draw_line(forward * radius * 1.18 + side * radius * 0.24, forward * radius * 1.78 + side * radius * 0.28, clamp_color, maxf(radius * 0.09, 1.5))
 		canvas.draw_line(forward * radius * 1.18 - side * radius * 0.24, forward * radius * 1.78 - side * radius * 0.28, clamp_color, maxf(radius * 0.09, 1.5))
 		canvas.draw_arc(forward * radius * 1.42, radius * 0.42, -PI * 0.34, PI * 0.34, 16, Color(clamp_color.r, clamp_color.g, clamp_color.b, clamp_color.a * 0.7), maxf(radius * 0.08, 1.3))
-	canvas.draw_circle(forward * radius * 1.52 + side * radius * 0.08, maxf(radius * 0.04, 1.0), dark)
-	canvas.draw_circle(forward * radius * 1.52 - side * radius * 0.08, maxf(radius * 0.04, 1.0), dark)
+	canvas.draw_circle(forward * radius * (1.52 + head_extension) + side * radius * 0.08, maxf(radius * 0.04, 1.0), dark)
+	canvas.draw_circle(forward * radius * (1.52 + head_extension) - side * radius * 0.08, maxf(radius * 0.04, 1.0), dark)
 	canvas.draw_circle(forward * radius * 0.78 + side * radius * 0.22, radius * 0.1, dark)
 	canvas.draw_circle(forward * radius * 0.78 - side * radius * 0.22, radius * 0.1, dark)
 	canvas.draw_circle(forward * radius * 0.78 + side * radius * 0.22, maxf(radius * 0.05, 1.2), Color(0.85, 0.75, 0.3))

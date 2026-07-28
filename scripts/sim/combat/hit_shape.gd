@@ -8,6 +8,10 @@ static func melee_arc(actor: Node, reach_px: float, facing_dot_min := DEFAULT_ME
 	var aim := _aim_direction(actor)
 	var origin := _node_position(actor)
 	var actor_radius := _body_radius(actor)
+	return melee_arc_from(origin, aim, reach_px, actor_radius, facing_dot_min)
+
+static func melee_arc_from(origin: Vector2, heading: Vector2, reach_px: float, actor_radius := 0.0, facing_dot_min := DEFAULT_MELEE_DOT_MIN) -> Dictionary:
+	var aim := heading.normalized() if heading != Vector2.ZERO else Vector2.RIGHT
 	var radius := reach_px + actor_radius
 	return {
 		"kind": "melee_arc",

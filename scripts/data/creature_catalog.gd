@@ -1,7 +1,12 @@
 extends Node
 
 const SimConstants := preload("res://scripts/sim/sim_constants.gd")
+const AttackTimeline := preload("res://scripts/sim/combat/attack_timeline.gd")
 const ROSTER_PATH := "res://data/battle_bog_roster.json"
+const DEFAULT_PRIMARY_ATTACK_AIM_POLICY := "locked_at_acceptance"
+const PRIMARY_ATTACK_AIM_POLICIES := [
+	DEFAULT_PRIMARY_ATTACK_AIM_POLICY,
+]
 
 var creatures_by_id: Dictionary = {}
 var creatures: Array[Dictionary] = []
@@ -46,6 +51,12 @@ func load_catalog(path := ROSTER_PATH, emit_errors := true) -> bool:
 			_report_error("Creature %s is missing footprint." % creature_id, emit_errors)
 			valid = false
 		if not _validate_hurtbox_regions(creature_id, creature.get("hurtbox_regions", []), emit_errors):
+			valid = false
+		if creature.has("primary_attack_timelines") and not _validate_primary_attack_timelines(
+			creature_id,
+			creature.get("primary_attack_timelines"),
+			emit_errors
+		):
 			valid = false
 		if String(creature.get("diet", "")).is_empty():
 			_report_error("Creature %s is missing diet." % creature_id, emit_errors)
@@ -109,6 +120,89 @@ func _validate_hurtbox_regions(creature_id: String, regions: Variant, emit_error
 		if not _valid_region_offset(region.get("offset_units", null)):
 			_report_error("Creature %s hurtbox region %s offset_units must be [forward, side] or {forward, side}." % [creature_id, name], emit_errors)
 			valid = false
+	return valid
+
+func _validate_primary_attack_timelines(
+	creature_id: String,
+	timelines_value: Variant,
+	emit_errors: bool
+) -> bool:
+	if typeof(timelines_value) != TYPE_DICTIONARY:
+		_report_error(
+			"Creature %s primary_attack_timelines must be an object." % creature_id,
+			emit_errors
+		)
+		return false
+
+	var timelines: Dictionary = timelines_value
+	if timelines.is_empty():
+		_report_error(
+			"Creature %s primary_attack_timelines must define at least one variant." % creature_id,
+			emit_errors
+		)
+		return false
+
+	var valid := true
+	for variant_name_value: Variant in timelines:
+		if typeof(variant_name_value) != TYPE_STRING and typeof(variant_name_value) != TYPE_STRING_NAME:
+			_report_error(
+				"Creature %s primary attack variant names must be strings." % creature_id,
+				emit_errors
+			)
+			valid = false
+			continue
+
+		var variant_name := String(variant_name_value).strip_edges()
+		if variant_name.is_empty():
+			_report_error(
+				"Creature %s primary attack variant name must not be empty." % creature_id,
+				emit_errors
+			)
+			valid = false
+			continue
+
+		var variant_value: Variant = timelines[variant_name_value]
+		if typeof(variant_value) != TYPE_DICTIONARY:
+			_report_error(
+				"Creature %s primary attack variant %s must be an object." % [creature_id, variant_name],
+				emit_errors
+			)
+			valid = false
+			continue
+
+		var variant: Dictionary = variant_value
+		if variant.is_empty() or AttackTimeline.normalize_config(variant).is_empty():
+			_report_error(
+				"Creature %s primary attack variant %s has an invalid timeline config." % [creature_id, variant_name],
+				emit_errors
+			)
+			valid = false
+
+		var aim_policy_value: Variant = variant.get(
+			"aim_policy",
+			DEFAULT_PRIMARY_ATTACK_AIM_POLICY
+		)
+		if (
+			typeof(aim_policy_value) != TYPE_STRING
+			and typeof(aim_policy_value) != TYPE_STRING_NAME
+		) or not PRIMARY_ATTACK_AIM_POLICIES.has(String(aim_policy_value)):
+			_report_error(
+				"Creature %s primary attack variant %s aim_policy must be one of %s."
+				% [creature_id, variant_name, str(PRIMARY_ATTACK_AIM_POLICIES)],
+				emit_errors
+			)
+			valid = false
+
+		if variant.has("cooldown_sec"):
+			var cooldown := _number_or_nan(variant.get("cooldown_sec"))
+			if is_nan(cooldown) or is_inf(cooldown) or cooldown <= 0.0:
+				_report_error(
+					"Creature %s primary attack variant %s cooldown_sec must be finite and positive."
+					% [creature_id, variant_name],
+					emit_errors
+				)
+				valid = false
+
 	return valid
 
 func _report_error(message: String, emit_errors: bool) -> void:

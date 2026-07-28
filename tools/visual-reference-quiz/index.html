@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Interactive Battle Bog visual-reference preference quiz."
+    >
+    <title>Battle Bog Visual Reference Quiz</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-block">
+        <span class="brand-mark" aria-hidden="true">BB</span>
+        <div>
+          <strong>Visual Reference Quiz</strong>
+          <span>Battle Bog art-direction research</span>
+        </div>
+      </div>
+
+      <div class="progress-block" aria-live="polite">
+        <div class="progress-copy">
+          <span id="progress-label">0 of 50 references rated</span>
+          <span id="save-state">Saved locally</span>
+        </div>
+        <div
+          class="progress-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+        >
+          <span id="progress-fill"></span>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <button class="button button-secondary" id="summary-button" type="button">
+          Review
+        </button>
+        <button class="button button-primary" id="export-button" type="button">
+          Export results
+        </button>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <aside class="section-rail" aria-label="Quiz sections">
+        <div class="rail-heading">
+          <span>Sections</span>
+          <button class="text-button" id="reset-button" type="button">Reset</button>
+        </div>
+        <nav id="section-nav"></nav>
+
+        <div class="legend">
+          <h2>Verdicts</h2>
+          <dl>
+            <div><dt class="legend-love">Love</dt><dd>Visible direction</dd></div>
+            <div><dt class="legend-useful">Useful</dt><dd>Mine one technique</dd></div>
+            <div><dt class="legend-unsure">Unsure</dt><dd>Needs comparison</dd></div>
+            <div><dt class="legend-reject">Reject</dt><dd>Explicit boundary</dd></div>
+          </dl>
+        </div>
+      </aside>
+
+      <main class="quiz-main">
+        <section class="section-intro" aria-labelledby="section-title">
+          <div>
+            <span class="eyebrow" id="section-number">Section 01</span>
+            <h1 id="section-title">Visual North Star</h1>
+            <p id="section-description"></p>
+          </div>
+          <div class="axis-list" id="axis-list" aria-label="Decision axes"></div>
+        </section>
+
+        <section class="forced-choice" id="forced-choice-panel">
+          <div class="forced-copy">
+            <span class="eyebrow">Fast calibration</span>
+            <h2 id="forced-prompt"></h2>
+          </div>
+          <div class="segmented" id="forced-options"></div>
+        </section>
+
+        <div class="gallery-toolbar">
+          <label class="search-field">
+            <span>Search references</span>
+            <input
+              id="search-input"
+              type="search"
+              placeholder="Game, technique, question..."
+              autocomplete="off"
+            >
+          </label>
+
+          <label class="filter-field">
+            <span>Reference role</span>
+            <select id="role-filter">
+              <option value="all">All roles</option>
+              <option value="Anchor">Anchors</option>
+              <option value="Neighbor">Compatible neighbors</option>
+              <option value="Specialist">Specialists</option>
+              <option value="Boundary">Boundaries</option>
+              <option value="Prototype">Prototype looks</option>
+            </select>
+          </label>
+
+          <label class="filter-field">
+            <span>Verdict</span>
+            <select id="verdict-filter">
+              <option value="all">All verdicts</option>
+              <option value="unrated">Unrated</option>
+              <option value="love">Love</option>
+              <option value="useful">Useful</option>
+              <option value="unsure">Unsure</option>
+              <option value="reject">Reject</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="reference-grid" id="reference-grid"></div>
+        <div class="empty-state" id="empty-state" hidden>
+          No references match these filters.
+        </div>
+
+        <div class="section-pager">
+          <button class="button button-secondary" id="previous-section" type="button">
+            Previous section
+          </button>
+          <span id="section-count"></span>
+          <button class="button button-primary" id="next-section" type="button">
+            Next section
+          </button>
+        </div>
+      </main>
+
+      <aside class="decision-tray" aria-label="Current preference summary">
+        <div class="tray-heading">
+          <span class="eyebrow">Live readout</span>
+          <h2>What your choices say</h2>
+        </div>
+
+        <div class="tray-stat-grid">
+          <div><strong id="love-count">0</strong><span>Love</span></div>
+          <div><strong id="useful-count">0</strong><span>Useful</span></div>
+          <div><strong id="unsure-count">0</strong><span>Unsure</span></div>
+          <div><strong id="reject-count">0</strong><span>Reject</span></div>
+        </div>
+
+        <section class="tray-section">
+          <h3>Emerging anchors</h3>
+          <ul id="anchor-list"></ul>
+        </section>
+
+        <section class="tray-section">
+          <h3>Specialists to mine</h3>
+          <ul id="specialist-list"></ul>
+        </section>
+
+        <section class="tray-section">
+          <h3>Clear boundaries</h3>
+          <ul id="boundary-list"></ul>
+        </section>
+
+        <p class="privacy-note">
+          Progress stays in this browser. Export Markdown or JSON when finished.
+        </p>
+      </aside>
+    </div>
+
+    <dialog id="summary-dialog">
+      <div class="dialog-header">
+        <div>
+          <span class="eyebrow">Preference brief</span>
+          <h2>Review and export</h2>
+        </div>
+        <button class="button button-secondary" id="close-summary" type="button">
+          Close
+        </button>
+      </div>
+
+      <div class="summary-layout">
+        <section class="summary-copy">
+          <div id="summary-content"></div>
+        </section>
+        <aside class="summary-actions">
+          <label>
+            Session name
+            <input id="session-name" type="text" placeholder="Battle Bog visual pass">
+          </label>
+          <button class="button button-primary" id="copy-markdown" type="button">
+            Copy Markdown
+          </button>
+          <button class="button button-secondary" id="download-markdown" type="button">
+            Download Markdown
+          </button>
+          <button class="button button-secondary" id="download-json" type="button">
+            Download JSON
+          </button>
+          <p>
+            The export separates visible style approval from specialist
+            usefulness, so motion or pipeline research cannot silently become an
+            art-direction decision.
+          </p>
+        </aside>
+      </div>
+    </dialog>
+
+    <template id="reference-template">
+      <article class="reference-card">
+        <a class="reference-image-link" target="_blank" rel="noreferrer">
+          <img class="reference-image" alt="" loading="lazy">
+          <span class="source-badge"></span>
+          <span class="role-badge"></span>
+        </a>
+
+        <div class="card-body">
+          <div class="card-title-row">
+            <div>
+              <span class="game-name"></span>
+              <h2 class="reference-title"></h2>
+            </div>
+            <a class="context-link" target="_blank" rel="noreferrer">Context</a>
+          </div>
+
+          <p class="focus-copy"></p>
+          <p class="context-copy"></p>
+          <div class="question-box">
+            <span>Question</span>
+            <p class="question-copy"></p>
+          </div>
+
+          <div class="verdict-control" role="group" aria-label="Rate this reference">
+            <button type="button" data-verdict="love">Love</button>
+            <button type="button" data-verdict="useful">Useful</button>
+            <button type="button" data-verdict="unsure">Unsure</button>
+            <button type="button" data-verdict="reject">Reject</button>
+          </div>
+
+          <details class="card-notes">
+            <summary>Add scope and notes</summary>
+            <fieldset class="scope-fieldset">
+              <legend>Mine this for</legend>
+              <label><input type="checkbox" value="style"> Style</label>
+              <label><input type="checkbox" value="motion"> Motion</label>
+              <label><input type="checkbox" value="function"> Function</label>
+              <label><input type="checkbox" value="environment"> Environment</label>
+              <label><input type="checkbox" value="ui"> UI</label>
+              <label><input type="checkbox" value="pipeline"> Pipeline</label>
+            </fieldset>
+            <label class="notes-label">
+              Keep, avoid, or clarify
+              <textarea
+                rows="3"
+                placeholder="What specifically belongs in Battle Bog, or feels incompatible?"
+              ></textarea>
+            </label>
+            <p class="limits-copy"></p>
+          </details>
+        </div>
+      </article>
+    </template>
+
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
