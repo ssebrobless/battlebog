@@ -111,6 +111,11 @@ static func draw_battle_creature(canvas: CanvasItem, creature_id: String, team: 
 	var grounded_lockout_t := clampf(float(anim.get("grounded_lockout_t", 0.0)), 0.0, 1.0)
 	var terrain_splash_t := clampf(float(anim.get("terrain_splash_t", 0.0)), 0.0, 1.0)
 	var terrain_scuff_t := clampf(float(anim.get("terrain_scuff_t", 0.0)), 0.0, 1.0)
+	var counter_flash_t := clampf(float(anim.get("counter_flash_t", 0.0)), 0.0, 1.0)
+	var counter_flash_color: Color = anim.get(
+		"counter_flash_color",
+		Color(1.0, 0.88, 0.24, 1.0)
+	)
 
 	var attack_t := float(anim.get("attack_t", -1.0))
 	var windup_t := float(anim.get("windup_t", -1.0))
@@ -250,10 +255,8 @@ static func draw_battle_creature(canvas: CanvasItem, creature_id: String, team: 
 		canvas.draw_arc(Vector2.ZERO, thump_radius, 0.0, TAU, 40, thump_color, maxf(2.0, visual_radius * 0.12))
 		canvas.draw_arc(Vector2.ZERO, thump_radius * 0.72, 0.0, TAU, 32, Color(thump_color.r, thump_color.g, thump_color.b, thump_color.a * 0.6), maxf(1.5, visual_radius * 0.08))
 	if not airborne:
-		_draw_ground_truth_footprint(canvas, shake_offset, radius, outline, alpha)
+		_draw_ground_contact_shadow(canvas, shake_offset, radius, alpha)
 	canvas.draw_set_transform(shake_offset + body_offset + movement_bob + (Vector2(0.0, -air_lift_px) if airborne else Vector2.ZERO), 0.0, Vector2.ONE)
-	if airborne:
-		canvas.draw_arc(Vector2.ZERO, visual_radius + 3.0, 0.0, TAU, 40, outline, 2.5)
 
 	match String(skin.get("base", "blob")):
 		"frog":
@@ -286,13 +289,20 @@ static func draw_battle_creature(canvas: CanvasItem, creature_id: String, team: 
 		match String(skin.get("strike", "")):
 			"tongue":
 				_strike_tongue(canvas, visual_radius, attack_aim.normalized(), attack_reach, strike)
-	_draw_open_region_outlines(canvas, anim, visual_radius, alpha)
-
 	if flash_alpha > 0.0:
 		var flash_mult := clampf(float(anim.get("flash_region_mult", 1.0)), 0.75, 1.35)
 		var flash_color := _region_flash_color(flash_mult)
 		flash_color.a = clampf(flash_alpha, 0.0, 1.0) * 0.85
 		canvas.draw_circle(Vector2.ZERO, visual_radius + 3.0, flash_color)
+	if counter_flash_t > 0.0:
+		counter_flash_color.a = 0.72 * counter_flash_t
+		canvas.draw_circle(Vector2.ZERO, maxf(visual_radius - 2.0, 1.0), counter_flash_color)
+	_draw_open_region_outlines(canvas, anim, visual_radius, alpha)
+	if airborne:
+		canvas.draw_arc(Vector2.ZERO, visual_radius + 3.0, 0.0, TAU, 40, outline, 2.5)
+	else:
+		canvas.draw_set_transform(shake_offset, 0.0, Vector2.ONE)
+		canvas.draw_arc(Vector2.ZERO, radius, 0.0, TAU, 48, outline, 2.2)
 	canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 static func _draw_open_region_outlines(canvas: CanvasItem, anim: Dictionary, visual_radius: float, alpha: float) -> void:
@@ -313,11 +323,14 @@ static func _draw_open_region_outlines(canvas: CanvasItem, anim: Dictionary, vis
 		canvas.draw_arc(local_center, radius * 0.66, -PI * 0.15, PI * 0.85, 16, Color(region_color.r, region_color.g, region_color.b, region_color.a * 0.55), maxf(1.0, visual_radius * 0.035))
 
 static func _draw_ground_truth_footprint(canvas: CanvasItem, origin: Vector2, radius: float, outline: Color, alpha: float) -> void:
+	_draw_ground_contact_shadow(canvas, origin, radius, alpha)
+	canvas.draw_set_transform(origin, 0.0, Vector2.ONE)
+	canvas.draw_arc(Vector2.ZERO, radius, 0.0, TAU, 48, outline, 2.2)
+
+static func _draw_ground_contact_shadow(canvas: CanvasItem, origin: Vector2, radius: float, alpha: float) -> void:
 	var shadow_color := _with_alpha(VisualGrammar.shadow_color(0.32), alpha)
 	canvas.draw_set_transform(origin + Vector2(radius * 0.14, radius * 0.18), 0.0, Vector2(1.0, 0.58))
 	canvas.draw_circle(Vector2.ZERO, radius, shadow_color)
-	canvas.draw_set_transform(origin, 0.0, Vector2.ONE)
-	canvas.draw_arc(Vector2.ZERO, radius, 0.0, TAU, 48, outline, 2.2)
 
 static func _region_flash_color(region_mult: float) -> Color:
 	if region_mult > 1.05:

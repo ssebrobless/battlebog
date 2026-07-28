@@ -117,7 +117,8 @@ func _check_death_roll_water_gate(arena: Node, failures: Array[String]) -> void:
 	victim.receive_latch(actor, 2.0, "Bite")
 	actor.set_input_frame(q_frame)
 	actor.kit.tick(actor, 0.016)
-	actor.kit.tick(actor, 1.0)
+	# The canonical Death Roll now owns a 0.35 s non-damaging startup.
+	actor.kit.tick(actor, 1.35)
 	var started_in_water: bool = actor.kit.death_roll_timer > 3.8 and actor.q_timer > 4.0
 	var dealt_30: bool = victim.health <= victim.max_health - 29.0
 	if not blocked_on_land or not started_in_water or not dealt_30:
