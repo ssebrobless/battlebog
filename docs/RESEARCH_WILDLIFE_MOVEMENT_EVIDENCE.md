@@ -1,11 +1,12 @@
 # Battle Bog Wildlife Movement Evidence
 
-Status: research synthesis, implementation translation pending
+Status: research synthesis translated into the roster-wide completion roadmap
 
-Compiled: 2026-07-27
+Compiled: 2026-07-28
 
 Cross-checked primary text on 2026-07-27 for the newt transition sequence and
-the crayfish tail-flip preparation/active timing.
+the crayfish tail-flip preparation/active timing. Expanded on 2026-07-28 with
+bird strike sequences and bounded shoreline/crawly transition research.
 
 Related:
 
@@ -153,26 +154,38 @@ apply.
 | Water snake swimming | High-speed close proxy | [JEB swimming-snake movie](https://movie.biologists.com/video/10.1242/jeb.245929/video-1) | `REF` |
 | Snapping turtle strike | Exact-family research | [Aquatic prey-capture study](https://cpb-us-e1.wpmucdn.com/sites.harvard.edu/dist/6/58/files/2022/03/LauderPendergast1992.pdf) | `REF` |
 | Bog turtle morphology | Exact species, non-motion | [USFWS bog-turtle trail](https://www.fws.gov/media/bog-turtle-trail) | Public domain |
+| Bog turtle shore release | Exact-species wildlife program footage | [PBS North Carolina bog turtle](https://www.pbs.org/video/bog-turtles-big-trouble-for-our-smallest-turtle-ci8xqd/) | `REF` |
 | Water shrew pursuit | Exact-species research | [Vanderbilt Catania Lab movies](https://as.vanderbilt.edu/catanialab/research/water-shrews/) | `REF` |
-| Mink movement | Exact-species wildlife footage | [USFWS-hosted mink video](https://www.facebook.com/USFWS/videos/american-mink/2334739943579604/) | Verify item rights |
+| Mink movement | Species-geography-supported wildlife footage | [USFWS-hosted mink video](https://www.facebook.com/USFWS/videos/american-mink/2334739943579604/) | Verify item rights |
+| Mink fixed-camera shore transition | Kansas wildlife program footage | [PBS Kansas episode 1111](https://www.pbs.org/video/positively-kansas-1111-jlbdho/) | `REF`; species identity geographically inferred |
+| Mink aquatic locomotion | Research study | [Williams 1983 mink locomotion](https://bpb-us-e1.wpmucdn.com/sites.ucsc.edu/dist/7/1769/files/2024/07/MinkLocomotion1_Williams1983.pdf) | `REF` |
 | Otter swimming | Exact-family research | [River-otter locomotion study](https://www.wcupa.edu/sciences-mathematics/biology/fFish/documents/1994JMOtter2.pdf) | `REF` |
 | Beaver underwater | Rehabilitation footage | [Sonoma Wildlife Rescue video](https://www.youtube.com/watch?v=04PmnJUfKT4) | `REF` |
+| Beaver surface turning | Exact-family public footage | [NPS Mount Rainier beavers](https://www.nps.gov/media/video/view.htm?id=5E9B7477-0D02-43A4-98C7-8F7818DDA502) | Public domain with credit |
+| Beaver branch transport | Species-unconfirmed footage | [Earth Rangers branch transport](https://www.youtube.com/watch?v=Ql6GooRBP5U) | `REF`; morphology proxy only |
 | Great blue heron foraging | Exact-species archive footage | [Macaulay Library asset 201486451](https://macaulaylibrary.org/asset/201486451) | Contributor media, `REF` |
+| Great blue heron strike | Exact-species fixed-rate film | [IWF E-1494](https://av.tib.eu/media/16036) | CC BY-NC-ND 3.0; observation only, no adapted export |
 | Owl silent flight | Wildlife documentary | [PBS owl flight](https://www.pbs.org/video/nature-owl-shows-silent-flight-superpower/) | `REF` |
+| Great gray owl hunt | Exact-species 100 fps research video | [Clark et al. 2022](https://pmc.ncbi.nlm.nih.gov/articles/PMC9682441/) | CC BY 4.0 |
 | Duck paddling | High-speed research | [JEB duck-paddling movie](https://movie.biologists.com/video/10.1242/jeb.249274/video-1) | `REF` |
 | Kingfisher dive | Close-proxy archive footage | [Macaulay Library video 201669261](https://macaulaylibrary.org/video/201669261) | Contributor media, `REF` |
+| Belted kingfisher dive sequence | Exact-species institutional account | [Alaska Fish and Game, The Fisher King](https://www.adfg.alaska.gov/index.cfm?adfg=soundswild.episode&id=the-fisher-king) | Government text; footage still required for timing |
 | Crayfish tail flip | Exact-family research | [JEB escape response](https://journals.biologists.com/jeb/article/223/15/jeb219873/224515/Morphology-performance-and-fluid-dynamics-of-the) | `REF` |
 | Leech locomotion | Exact-family review | [Leech locomotion review](https://pmc.ncbi.nlm.nih.gov/articles/PMC2323911/) | `REF` |
+| Medicinal leech swimming | Exact-species 60 fps study | [Hirudo verbana swimming study](https://pmc.ncbi.nlm.nih.gov/articles/PMC3027469/) | `REF` |
+| Medicinal leech crawl/swim candidate | Exact-species footage | [Hirudo verbana crawl and swim](https://www.youtube.com/watch?v=4Ec33nEtI88) | `REF`; transition is obscured |
 | Wolf spider burrowing | Exact-family study and video | [Spider burrowing study](https://pmc.ncbi.nlm.nih.gov/articles/PMC3281395/) | `REF` |
+| Wolf spider pounce | Exact-family fixed macro footage | [Pirata pounce footage](https://www.youtube.com/watch?v=pdrX3seUVJg) | `REF` |
 | Mosquito swarm structure | Exact-family 3D study | [Mosquito-swarm study](https://pmc.ncbi.nlm.nih.gov/articles/PMC10229557/) | `REF` |
 | Firefly display | Exact-species dataset | [Dryad 130-minute recording](https://datadryad.org/dataset/doi%3A10.5061/dryad.3n5tb2rmb) | CC0 under [Dryad terms](https://datadryad.org/terms) |
 | Continuous bird banking | Game motion reference | [Flock official page](https://annapurnainteractive.com/games/flock) | `REF` |
 | Long procedural bodies | Game motion reference | [Rain World official site](https://rainworldgame.com/) | `REF` |
 | Cohesive individual swarm | Game motion reference | [Pikmin 4 official site](https://pikmin4.nintendo.com/) | `REF` |
 
-## Concrete Timing Evidence
+## Observed Biological Timing - Not Gameplay Timing
 
-The crayfish tail-flip source documents `0.20 +/- 0.08 s` of metachronal
+As a biological reference observation, the crayfish tail-flip source documents
+`0.20 +/- 0.08 s` of metachronal
 pleopod preparation before a roughly `0.02-0.04 s` flip. Battle Bog should test
 the preparation as its legible startup and treat the flip as the active burst,
 rather than slowing the entire action into generic anticipation.
@@ -181,6 +194,9 @@ Other timing values remain unmeasured until clips are frame-verified. They must
 not be inferred from edited trailers.
 
 ## Wave 2 Evidence Update
+
+Historical snapshot: Wave 3 below supersedes the open/partial statuses in this
+section where the two disagree.
 
 ```text
 CLOSED                  PARTIAL                 OPEN
@@ -203,7 +219,8 @@ owl strike mechanics    heron strike sequence   complete kingfisher dive chain
 - Medicinal-leech evidence distinguishes `0.3-0.5 s` swimming cycles from
   much slower `2-20 s` anchor-based crawl cycles. A direct spontaneous
   transition remains missing, but the two gait states are no longer
-  provisional. [Swimming kinematics](https://pmc.ncbi.nlm.nih.gov/articles/PMC3027469/)
+  provisional. These are observed biological cycles, not gameplay timing.
+  [Swimming kinematics](https://pmc.ncbi.nlm.nih.gov/articles/PMC3027469/)
   and [crawl/swim behavior](https://pmc.ncbi.nlm.nih.gov/articles/PMC2323911/)
   are strong family proxies.
 - Barn-owl kinetics support a force-concentrated strike and a softer landing
@@ -220,9 +237,10 @@ owl strike mechanics    heron strike sequence   complete kingfisher dive chain
   forefeet and the tail primarily as rudder/dive plane. Do not animate the
   tail as a constant paddle.
 - [PBS Kansas mink footage](https://www.pbs.org/video/positively-kansas-1111-jlbdho/)
-  contains exact-species land/water hunting from `21:32-26:38`; water entry can
+  contains Kansas mink land/water hunting from `21:32-26:38`; water entry can
   reduce the animal to a surface ripple and underwater crevice hunting appears
-  around `26:04`. Fixed-camera entry and exit remain weak.
+  around `26:04`. Wave 3 adds a stronger fixed-camera entry/exit window; species
+  identity remains geographically inferred.
 - [Great blue heron ML435241](https://macaulaylibrary.org/video/435241) and a
   [180 fps fishing clip](https://www.youtube.com/watch?v=OvNQjqIIuaU) provide
   exact-species loading, release and recoil candidates. Frame extraction is
@@ -235,23 +253,66 @@ owl strike mechanics    heron strike sequence   complete kingfisher dive chain
 
 - Exact chorus frog travel-to-water footage remains unavailable. The cricket
   frog surface-skitter remains a biomechanical proxy only.
-- Prior Battle Bog research uses Belted Kingfisher as its leading species
-  reference, but a complete perch/hover/dive/submerge/emerge/reset chain is
-  still unverified.
-- Clean owl strike-to-recovery footage remains missing despite strong impact
-  mechanics evidence.
+- Prior Battle Bog research uses Belted Kingfisher as its leading species.
+  Wave 3 verifies the state order but leaves high-speed phase timing open.
+- Wave 3 adds a clean owl strike chain; playable species and ordinary
+  post-strike landing/lift remain open.
 - Scientific wolf-spider footage covers excavation rather than prey ambush.
   Unverified reposts must not become animation evidence.
+
+## Wave 3 Evidence Update
+
+This pass resolved several motion-order questions without pretending that
+wildlife footage defines Battle Bog balance timing.
+
+### Birds
+
+- Belted Kingfisher now has an exact-species behavioral chain:
+  `perch -> swoop -> hover/aim -> plunge -> full submergence -> emerge ->
+  return/process`. The source validates state order, not frame duration. The
+  animation brief remains `PERCH_LOCK -> TAKEOFF/AIM_HOVER -> DIVE_COMMIT ->
+  WATER_ENTRY -> SUBMERGED -> EMERGE -> RESET/REPERCH`.
+- Great Gray Owl high-speed evidence separates glide, braking/turning, brief
+  hover, near-vertical descent, pre-impact leg thrust and wing-braced settle.
+  This supports `GLIDE_ACQUIRE -> BRAKE/TURN -> OVERHEAD_DESCENT ->
+  FEET_FIRST_HIT -> WING_BRACED_SETTLE -> LAND/LIFT`. The playable owl species
+  must be confirmed before final anatomy or motion is authored.
+- Great Blue Heron fixed-rate footage supports a planted S-neck load, rapid bill
+  release, water contact, wing-assisted recoil and S-neck reset. A useful
+  reference window is approximately `57.5-59.8`, but its timing must not be
+  copied as a universal attack duration.
+
+### Shoreline, Crawly And Transition Cases
+
+- Beaver underwater footage supports hind-foot propulsion and a trailing tail
+  used mainly for steering. A mouth-carried branch expands the forward and
+  lateral silhouette and should constrain turning; evidence does not support
+  forepaw carrying.
+- Kansas mink fixed-camera footage at `24:40.0-24:44.5` shows forequarter
+  purchase on exit, reversal, head-led shallow re-entry, disappearance and
+  wake. Species identity is geographically inferred rather than confirmed by
+  an on-screen scientific label. The visual should use an elongated pull and
+  rapid collapse into the water, not a vertical pop.
+- Wolf Spider fixed macro footage supports `aim-freeze -> short committed
+  launch -> contact -> leg-spread stabilization -> reorientation`. Natural
+  prey-triggered burrow ambush remains open.
+- Medicinal Leech evidence strongly separates anchor-based crawling and
+  traveling-wave swimming. The exact rear-sucker release and first complete
+  wave during spontaneous crawl-to-swim transition remain obscured.
+- Bog Turtle evidence still supports only a low, substrate-dependent shore
+  posture. It does not justify final walk cadence, paddle phase or transition
+  duration.
+- Exact Chorus Frog ordinary travel into water remains unavailable. Do not use
+  cricket-frog surface skitter to lock its normal travel.
 
 ## Highest-Priority Missing Footage
 
 - exact chorus frog ordinary travel and water entry;
 - overhead bog turtle walk, paddle and shoreline transition;
-- beaver underwater turns and object transport;
-- mink entry and exit from one fixed camera;
-- complete high-frame-rate kingfisher perch/hover/dive/submerge/emerge chain;
-- overhead owl dive, impact and recovery;
-- great blue heron frame-level loading through recoil;
+- species-confirmed North American beaver object transport and loaded turns;
+- a complete high-frame-rate Belted Kingfisher dive chain for phase duration,
+  while the state order is now supported;
+- playable-owl species confirmation and ordinary post-strike lift/landing;
 - wolf spider overhead burrow ambush;
 - spontaneous leech crawl/swim transitions.
 

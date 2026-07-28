@@ -1,7 +1,9 @@
 # Battle Bog Ordinary Attack Timeline Specification
 
 Status: shared timeline, melee split, Creature ownership, suppression provenance
-and Alligator migration implemented; later creature migrations open
+and Alligator prototype migration implemented; locked Decisions #23-26
+conformance and later creature migrations remain open under
+`BATTLE_BOG_ROSTER_WIDE_CHARACTER_COMPLETION_ROADMAP.md`
 
 Compiled: 2026-07-27
 
@@ -164,15 +166,20 @@ Deterministic active-tick order:
 Target snapshotting prevents entity-list mutation from skipping or reordering
 targets.
 
-## Initial Prototype Data
+## Post-R0.5 Prototype Data
 
 | Creature/Variant | Startup | Active | Hit Recovery | Whiff Recovery | Interrupted |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Alligator (implemented) | `0.30` | `0.10` | `0.40` | `0.80` | `0.50` |
-| Kingfisher ground | `0.25` | `0.08` | `0.25` | `0.42` | `0.35` |
+| Alligator | `0.30` | `0.10` | `0.48` | `0.80` | `0.50` |
+| Kingfisher ground | `0.25` | `0.08` | `0.252` | `0.42` | `0.35` |
 | Kingfisher air | `0.32` | `0.10` | `0.30` | `0.50` | `0.40` |
-| Kingfisher plunge | `0.45` | `0.12` | `0.40` | `0.65` | `0.50` |
+| Kingfisher plunge | `0.25` | travel `0.20`, contact `0.12` | `0.39` | `0.65` | `0.50` |
 | Mosquito release | `0.24` | `0.06` | released `0.20` | `0.30` | `0.30` |
+
+Decision #24 derives contact-action hit recovery as exactly
+`whiff_recovery * 0.60`. The current Alligator implementation still uses
+`0.40`; `BATTLE_BOG_ROSTER_WIDE_CHARACTER_COMPLETION_ROADMAP.md` task `R0.5`
+changes it to `0.48` and adds catalog enforcement before further migration.
 
 Each definition also owns:
 

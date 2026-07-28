@@ -5,6 +5,11 @@ simulation/presentation bridge complete, visual acceptance still open
 
 Compiled: 2026-07-27
 
+Execution-order note: `BATTLE_BOG_ROSTER_WIDE_CHARACTER_COMPLETION_ROADMAP.md`
+supersedes this document's queue. This document remains authoritative for its
+technical history and detailed visual work packages, but visual production
+cannot begin before the locked PvAI exit gate in the roster-wide roadmap.
+
 ## Dependency Graph
 
 ```text

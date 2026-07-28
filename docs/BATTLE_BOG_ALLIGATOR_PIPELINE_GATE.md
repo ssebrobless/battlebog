@@ -1,7 +1,8 @@
 # Battle Bog Alligator Pipeline Gate
 
 Status: simulation, presentation-data prerequisites and the procedural
-diagnostic prototype implemented; gameplay evidence and four-way decision open
+diagnostic prototype implemented; locked frame-data conformance, gameplay
+evidence and four-way decision open
 
 Compiled: 2026-07-27
 
@@ -196,7 +197,7 @@ Initial timings:
 | `ambush_idle` | `1.00 s` loop | ambush state |
 | `bite_startup` | `0.30 s` | simulation warning |
 | `bite_active` | `0.10 s` | damage/latch event |
-| `bite_recover_hit` | `0.40 s` | simulation recovery |
+| `bite_recover_hit` | `0.48 s` post-`R0.5` (`0.40 s` current) | simulation recovery; Decision #24 derivation |
 | `bite_recover_whiff` | `0.80 s` visible | simulation recovery; existing cooldown continues |
 | `jaw_hold` | `0.60 s` loop | latch state |
 | `death_roll` | `0.714 s` loop | existing `1.4` rotations/s |
@@ -206,10 +207,11 @@ Initial timings:
 These timings are prototype inputs. Playtest reaction and feel evidence may
 change them before roster-wide adoption.
 
-The Bite startup, active, hit, whiff and interrupted durations are live in the
-Alligator roster data and covered by deterministic state tests. The remaining
-clip rows are still visual-candidate requirements unless already supplied by
-the existing procedural fallback state.
+The Bite startup, active, current hit, whiff and interrupted durations are live
+in Alligator roster data and covered by deterministic state tests. `R0.5`
+changes hit recovery from `0.40` to the locked-derived `0.48` and updates those
+tests before visual-candidate work. The remaining clip rows are still candidate
+requirements unless already supplied by the procedural fallback state.
 
 ## Four-Way Asset Matrix
 
