@@ -608,6 +608,8 @@ func _prepare_real_arena(scenario: Dictionary) -> void:
 		return
 	_real_arena.process_mode = Node.PROCESS_MODE_DISABLED
 	_real_arena.visible = String(scenario.get("environment", "procedural")) == "real_arena"
+	if _real_arena.has_method("set_visual_capture_evaluator_mode"):
+		_real_arena.set_visual_capture_evaluator_mode(_capture_mode == "Evaluator")
 	var arena_camera: Variant = _real_arena.get("camera")
 	if arena_camera is Camera2D:
 		arena_camera.zoom = ScenarioCatalog.camera_zoom(_camera_preset)

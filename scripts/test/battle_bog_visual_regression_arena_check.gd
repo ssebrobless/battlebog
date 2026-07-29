@@ -222,6 +222,7 @@ func _check_runtime_contract_source() -> void:
 		"PLAYABLE_SQUAD_POOL",
 		"fixture_result[\"descriptor\"]",
 		"scenario_evidence",
+		"set_visual_capture_evaluator_mode",
 	]:
 		_expect(source.contains(token), "Visual fixture source is missing contract token '%s'." % token)
 	var neutral_source := FileAccess.get_file_as_string(

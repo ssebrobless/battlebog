@@ -228,6 +228,7 @@ var kill_feed_label: Label
 var end_summary_label: Label
 var help_label: Label
 var squad_hud: Control = null
+var visual_capture_evaluator_mode := false
 var match_result_panel: Control = null
 var local_input: Node = LocalInputScript.new()
 var bot_brain: RefCounted = BotBrainScript.new()
@@ -461,6 +462,13 @@ func _setup_crosshair_cursor() -> void:
 
 func _exit_tree() -> void:
 	Input.set_custom_mouse_cursor(null)
+
+func set_visual_capture_evaluator_mode(enabled: bool) -> void:
+	visual_capture_evaluator_mode = enabled
+	for child in get_children():
+		if child is CanvasLayer:
+			child.visible = not enabled
+	queue_redraw()
 
 func _build_ui() -> void:
 	var canvas := CanvasLayer.new()
@@ -3995,7 +4003,7 @@ func _draw_world_info_markers() -> void:
 		elif state == INFO_REVEALED:
 			draw_arc(point, radius + 5.0, 0.0, TAU, 36, Color(color.r, color.g, color.b, color.a * 0.7), 1.5)
 		var label := _world_info_marker_label(state)
-		if not label.is_empty():
+		if not visual_capture_evaluator_mode and not label.is_empty():
 			draw_string(ThemeDB.fallback_font, point + Vector2(-18.0, -radius - 6.0), label, HORIZONTAL_ALIGNMENT_CENTER, 36.0, 9, color)
 
 func _draw_terrain_event_overlays() -> void:
@@ -4012,7 +4020,7 @@ func _draw_terrain_event_overlays() -> void:
 		draw_arc(point, radius, 0.0, TAU, 56, edge, 2.2)
 		draw_arc(point, radius * 0.68, PI * 0.12, PI * 1.88, 42, Color(edge.r, edge.g, edge.b, edge.a * 0.72), 1.2)
 		var label := _terrain_event_label(kind)
-		if not label.is_empty():
+		if not visual_capture_evaluator_mode and not label.is_empty():
 			draw_string(ThemeDB.fallback_font, point + Vector2(-30.0, -radius - 7.0), label, HORIZONTAL_ALIGNMENT_CENTER, 60.0, 9, edge)
 
 func _terrain_event_label(kind: String) -> String:
@@ -4533,7 +4541,7 @@ func _draw_latch_countdown(telegraph: Dictionary, center: Vector2, color: Color)
 	draw_arc(center, radius, -PI * 0.5, -PI * 0.5 + TAU * (remaining / duration), 20, color, 3.0)
 
 func _draw_squad_badges() -> void:
-	if not _is_1v1_trio_mode():
+	if visual_capture_evaluator_mode or not _is_1v1_trio_mode():
 		return
 	for i in player_squad.size():
 		var member: Node = player_squad[i]
@@ -4674,7 +4682,8 @@ func _draw_breeding_cues() -> void:
 		var progress := 1.0 - remaining / duration
 		var color := Color(0.9, 0.75, 0.28, 0.85)
 		draw_arc(center, 24.0, -PI * 0.5, -PI * 0.5 + TAU * progress, 36, color, 4.0)
-		draw_string(ThemeDB.fallback_font, center + Vector2(-16.0, -28.0), "%ds" % ceili(remaining), HORIZONTAL_ALIGNMENT_LEFT, 36.0, 10, color)
+		if not visual_capture_evaluator_mode:
+			draw_string(ThemeDB.fallback_font, center + Vector2(-16.0, -28.0), "%ds" % ceili(remaining), HORIZONTAL_ALIGNMENT_LEFT, 36.0, 10, color)
 
 func _squad_badge_text(member: Node, index: int) -> String:
 	if member == player:
@@ -4703,6 +4712,8 @@ func _squad_badge_color(member: Node, _index: int) -> Color:
 			return Color(0.58, 1.0, 0.48, 0.95)
 
 func _draw_float_text(telegraph: Dictionary, color: Color, fade: float) -> void:
+	if visual_capture_evaluator_mode:
+		return
 	var duration: float = maxf(float(telegraph.get("duration", 0.5)), 0.01)
 	var remaining: float = float(telegraph.get("remaining", 0.0))
 	var progress := 1.0 - clampf(remaining / duration, 0.0, 1.0)

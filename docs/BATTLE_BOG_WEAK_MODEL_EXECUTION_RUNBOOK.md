@@ -594,6 +594,7 @@ scripts/test/visual/scenarios/alligator_latch_death_roll_scenario.gd
 scripts/test/visual/scenarios/alligator_death_respawn_scenario.gd
 scripts/test/visual/scenarios/alligator_six_actor_density_scenario.gd
 scripts/game/game_config.gd
+scripts/game/arena.gd
 scripts/test/visual/visual_regression_arena.gd
 scripts/test/battle_bog_visual_regression_arena_check.gd
 scripts/test/run_r2c_visual_matrix.ps1
@@ -651,7 +652,10 @@ Locked R2C fixture and evidence decisions:
   invent a visible death animation that production does not provide.
 - Diagnostic overlays are owned by scenarios and may draw only when
   `capture_mode == "Diagnostic"`. Evaluator scenarios create no overlay node or
-  draw command and report `diagnostic_labels == false`.
+  draw command and report `diagnostic_labels == false`. The visual runner also
+  enables Arena's default-off evaluator boundary, which hides HUD canvases and
+  suppresses text-only world overlays while preserving world geometry and
+  non-text telegraphs.
 - The aggregate index has exactly 20 canonical tuple entries. Each entry binds
   three independently launched physical capture roots and their artifact hashes;
   all three must be byte-identical after run metadata is excluded. This satisfies
