@@ -93,7 +93,23 @@ func _check_manifest() -> void:
 	if not bool(loaded.get("ok", false)):
 		return
 	var scenarios: Array = loaded["manifest"]["scenarios"]
-	_expect(scenarios.size() == 1, "R2A manifest should expose only the real neutral smoke.")
+	var expected_ids := [
+		"neutral_smoke",
+		"alligator_player_camera_attack",
+		"alligator_shoreline_transition",
+		"alligator_latch_death_roll",
+		"alligator_death_respawn",
+		"alligator_six_actor_density",
+	]
+	var actual_ids: Array[String] = []
+	for scenario in scenarios:
+		actual_ids.append(String(scenario.get("id", "")))
+	_expect(
+		actual_ids == expected_ids,
+		"R2C manifest must expose the exact six scenarios in canonical order."
+	)
+	if scenarios.is_empty():
+		return
 	var neutral: Dictionary = scenarios[0]
 	_expect(
 		String(neutral.get("id", "")) == "neutral_smoke" \
@@ -114,6 +130,10 @@ func _check_semantic_schema() -> void:
 	_expect(
 		parsed.get("additionalProperties", true) == false,
 		"Semantic capture schema must be closed."
+	)
+	_expect(
+		int(parsed.get("properties", {}).get("schema_version", {}).get("const", 0)) == 2,
+		"Semantic capture schema must be version 2."
 	)
 	var required: Array = parsed.get("required", [])
 	for field in [
@@ -142,6 +162,30 @@ func _check_semantic_schema() -> void:
 	_expect(
 		int(body_schema.get("minItems", 0)) == 1,
 		"Critical-region body array must require at least one rectangle."
+	)
+	var evidence_schema: Dictionary = parsed.get("properties", {}).get(
+		"scenario_evidence",
+		{}
+	)
+	_expect(
+		not evidence_schema.is_empty() \
+			and evidence_schema.get("additionalProperties", true) == false,
+		"Scenario-evidence schema must exist and be closed."
+	)
+	var evidence_required: Array = evidence_schema.get("required", [])
+	for field in [
+		"action_phase", "presentation_band", "edge_distance_px",
+		"simulation_terrain", "actors",
+	]:
+		_expect(
+			evidence_required.has(field),
+			"Scenario-evidence schema is missing required field '%s'." % field
+		)
+	var actor_schema: Dictionary = parsed.get("$defs", {}).get("actorSummary", {})
+	_expect(
+		not actor_schema.is_empty() \
+			and actor_schema.get("additionalProperties", true) == false,
+		"Scenario-evidence actor summaries must be closed."
 	)
 
 
@@ -174,6 +218,10 @@ func _check_runtime_contract_source() -> void:
 		"_capture_mode != \"Performance\"",
 		"Evaluator mode forbids diagnostic labels",
 		"is not evaluator-safe",
+		"get_fixture_descriptor",
+		"PLAYABLE_SQUAD_POOL",
+		"fixture_result[\"descriptor\"]",
+		"scenario_evidence",
 	]:
 		_expect(source.contains(token), "Visual fixture source is missing contract token '%s'." % token)
 	var neutral_source := FileAccess.get_file_as_string(

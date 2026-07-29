@@ -7,6 +7,23 @@ const DEFAULT_MANIFEST_PATH := "res://tests/visual/manifest.json"
 const DEFAULT_OUTPUT_ROOT := "res://artifacts/visual-regression"
 const FIXTURE_BLUE_ROSTER := ["snapping_turtle", "chorus_frog", "mink"]
 const FIXTURE_RED_ROSTER := ["beaver", "otter", "alligator"]
+const FIXTURE_DESCRIPTOR_KEYS := ["blue_roster", "red_roster"]
+const SCENARIO_EVIDENCE_KEYS := [
+	"action_phase",
+	"presentation_band",
+	"edge_distance_px",
+	"simulation_terrain",
+	"actors",
+]
+const ACTOR_SUMMARY_KEYS := [
+	"actor_id",
+	"creature_id",
+	"team",
+	"alive",
+	"world_position_px",
+	"footprint_px",
+	"action_phase",
+]
 const DRY_RUN_FRAME_LIMIT := 3600
 
 var _mode := "capture"
@@ -62,7 +79,7 @@ func _configure_fixture_game() -> void:
 	GameConfig.center_boss = false
 
 
-func _reset_real_arena(seed: int) -> bool:
+func _reset_real_arena(seed: int, fixture_descriptor: Dictionary) -> bool:
 	if _real_arena != null and is_instance_valid(_real_arena):
 		if _real_arena.get_parent() == self:
 			remove_child(_real_arena)
@@ -70,6 +87,8 @@ func _reset_real_arena(seed: int) -> bool:
 	var arena_scene: PackedScene = load("res://scenes/Arena.tscn")
 	if arena_scene == null:
 		return false
+	GameConfig.set_selected_squad_ids(fixture_descriptor["blue_roster"])
+	GameConfig.set_selected_red_squad_ids(fixture_descriptor["red_roster"])
 	GameConfig.simulation_seed = seed
 	_real_arena = arena_scene.instantiate()
 	_real_arena.name = "Arena"
@@ -194,11 +213,12 @@ func _dry_resolve_named_anchors(
 	scenario: Dictionary,
 	viewport_contract: Dictionary
 ) -> Dictionary:
-	if not _reset_real_arena(int(scenario["seed"])):
+	var fixture_result := _load_scenario_fixture(scenario)
+	if not bool(fixture_result.get("ok", false)):
+		return fixture_result
+	if not _reset_real_arena(int(scenario["seed"]), fixture_result["descriptor"]):
 		return {"ok": false, "error": "Normal Arena scene could not be instantiated."}
-	var script_resource: Script = load(String(scenario["script"]))
-	if script_resource == null:
-		return {"ok": false, "error": "Scenario '%s' script could not be loaded." % scenario["id"]}
+	var script_resource: Script = fixture_result["script"]
 	var instance: Variant = script_resource.new()
 	if not instance is Node2D:
 		if instance is Object:
@@ -269,13 +289,14 @@ func _validate_scenario_scripts(
 	viewport_contract: Dictionary
 ) -> bool:
 	for scenario in scenarios:
-		if not _reset_real_arena(int(scenario["seed"])):
+		var fixture_result := _load_scenario_fixture(scenario)
+		if not bool(fixture_result.get("ok", false)):
+			_fail(String(fixture_result.get("error", "Scenario fixture could not be loaded.")))
+			return false
+		if not _reset_real_arena(int(scenario["seed"]), fixture_result["descriptor"]):
 			_fail("Normal Arena scene could not be instantiated.")
 			return false
-		var script_resource: Script = load(str(scenario["script"]))
-		if script_resource == null:
-			_fail("Scenario '%s' script could not be loaded." % scenario["id"])
-			return false
+		var script_resource: Script = fixture_result["script"]
 		var instance: Variant = script_resource.new()
 		if not instance is Node2D:
 			if instance is Object:
@@ -378,11 +399,15 @@ func _prepare_output_directory() -> bool:
 
 
 func _capture_scenario(scenario: Dictionary, viewport_contract: Dictionary) -> void:
-	if not _reset_real_arena(int(scenario["seed"])):
+	var fixture_result := _load_scenario_fixture(scenario)
+	if not bool(fixture_result.get("ok", false)):
+		_fail(String(fixture_result.get("error", "Scenario fixture could not be loaded.")))
+		return
+	if not _reset_real_arena(int(scenario["seed"]), fixture_result["descriptor"]):
 		_fail("Normal Arena scene could not be instantiated.")
 		return
 	var scenario_id := str(scenario["id"])
-	var script_resource: Script = load(str(scenario["script"]))
+	var script_resource: Script = fixture_result["script"]
 	var scenario_node: Node2D = script_resource.new()
 	_prepare_real_arena(scenario)
 	scenario_node.process_mode = Node.PROCESS_MODE_DISABLED
@@ -498,7 +523,7 @@ func _write_capture(
 		_fail("Scenario '%s' semantic capture is invalid: %s" % [scenario_id, semantic_error])
 		return false
 	var state := {
-		"schema_version": 1,
+		"schema_version": 2,
 		"scenario_id": scenario_id,
 		"action_id": semantic["action_id"],
 		"seed": clock.seed,
@@ -531,6 +556,8 @@ func _write_capture(
 			"renderer": _runtime_renderer_info.duplicate(true),
 		},
 	}
+	if semantic.has("scenario_evidence"):
+		state["scenario_evidence"] = semantic["scenario_evidence"].duplicate(true)
 	var state_file := FileAccess.open(state_path, FileAccess.WRITE)
 	if state_file == null:
 		_fail("State JSON could not be opened for writing: %s." % state_path)
@@ -598,8 +625,8 @@ func _semantic_state(
 	var outcome := String(
 		scenario_state.get("outcome", scenario_state.get("attack_outcome", "none"))
 	)
-	return {
-		"schema_version": 1,
+	var semantic := {
+		"schema_version": 2,
 		"scenario_id": String(scenario["id"]),
 		"action_id": String(scenario_state.get("action_id", scenario["id"])),
 		"seed": int(clock.seed),
@@ -632,6 +659,9 @@ func _semantic_state(
 		"png_sha256": png_sha256,
 		"runtime": {},
 	}
+	if scenario_state.has("scenario_evidence"):
+		semantic["scenario_evidence"] = scenario_state["scenario_evidence"].duplicate(true)
+	return semantic
 
 
 func _validate_semantic_state(state: Dictionary) -> String:
@@ -653,11 +683,165 @@ func _validate_semantic_state(state: Dictionary) -> String:
 		return "outcome is outside the closed vocabulary"
 	if not String(state["contact_truth"]) in ["none", "hit", "whiff", "blocked"]:
 		return "contact_truth is outside the closed vocabulary"
+	if state.has("scenario_evidence"):
+		var evidence_error := _scenario_evidence_error(state["scenario_evidence"])
+		if not evidence_error.is_empty():
+			return evidence_error
 	if _capture_mode == "Evaluator" and bool(state["diagnostic_labels"]):
 		return "Evaluator mode forbids diagnostic labels"
 	if _capture_mode == "Performance" and int(state["screenshot_readback_count"]) != 0:
 		return "Performance mode forbids screenshot readback"
 	return _json_safety_error(state, "semantic capture")
+
+
+func _load_scenario_fixture(scenario: Dictionary) -> Dictionary:
+	var script_resource: Script = load(String(scenario["script"]))
+	if script_resource == null:
+		return {
+			"ok": false,
+			"error": "Scenario '%s' script could not be loaded." % scenario["id"],
+		}
+	var descriptor := {
+		"blue_roster": FIXTURE_BLUE_ROSTER.duplicate(),
+		"red_roster": FIXTURE_RED_ROSTER.duplicate(),
+	}
+	if script_resource.has_method("get_fixture_descriptor"):
+		var candidate: Variant = script_resource.call("get_fixture_descriptor")
+		var descriptor_error := _fixture_descriptor_error(candidate)
+		if not descriptor_error.is_empty():
+			return {
+				"ok": false,
+				"error": "Scenario '%s' fixture descriptor is invalid: %s"
+					% [scenario["id"], descriptor_error],
+			}
+		descriptor = candidate.duplicate(true)
+	return {
+		"ok": true,
+		"script": script_resource,
+		"descriptor": descriptor,
+	}
+
+
+static func _fixture_descriptor_error(value: Variant) -> String:
+	if not value is Dictionary:
+		return "get_fixture_descriptor() must return a Dictionary"
+	var descriptor: Dictionary = value
+	for key in descriptor.keys():
+		if not key is String or not FIXTURE_DESCRIPTOR_KEYS.has(String(key)):
+			return "unexpected field '%s'" % String(key)
+	for key in FIXTURE_DESCRIPTOR_KEYS:
+		if not descriptor.has(key):
+			return "missing '%s'" % key
+		var roster: Variant = descriptor[key]
+		if not roster is Array or roster.size() != 3:
+			return "%s must contain exactly three creature IDs" % key
+		for creature_value in roster:
+			if not creature_value is String and not creature_value is StringName:
+				return "%s entries must be creature ID strings" % key
+			var creature_id := String(creature_value)
+			if not GameConfig.PLAYABLE_SQUAD_POOL.has(creature_id):
+				return "%s contains unknown creature ID '%s'" % [key, creature_id]
+	return ""
+
+
+static func _scenario_evidence_error(value: Variant) -> String:
+	if not value is Dictionary:
+		return "scenario_evidence must be an object"
+	var evidence: Dictionary = value
+	var closure_error := _closed_dictionary_error(
+		evidence,
+		SCENARIO_EVIDENCE_KEYS,
+		"scenario_evidence"
+	)
+	if not closure_error.is_empty():
+		return closure_error
+	if String(evidence["action_phase"]).is_empty():
+		return "scenario_evidence.action_phase must not be empty"
+	if not String(evidence["presentation_band"]) in ["unknown", "dry", "mud", "shallow", "deep"]:
+		return "scenario_evidence.presentation_band is outside the closed vocabulary"
+	if not evidence["edge_distance_px"] is int and not evidence["edge_distance_px"] is float:
+		return "scenario_evidence.edge_distance_px must be a signed number"
+	if not is_finite(float(evidence["edge_distance_px"])):
+		return "scenario_evidence.edge_distance_px must be finite"
+	if String(evidence["simulation_terrain"]).is_empty():
+		return "scenario_evidence.simulation_terrain must not be empty"
+	if not evidence["actors"] is Array or evidence["actors"].is_empty():
+		return "scenario_evidence.actors must contain at least one actor summary"
+	for actor_index in range(evidence["actors"].size()):
+		var actor_error := _actor_summary_error(evidence["actors"][actor_index], actor_index)
+		if not actor_error.is_empty():
+			return actor_error
+	return ""
+
+
+static func _actor_summary_error(value: Variant, actor_index: int) -> String:
+	var path := "scenario_evidence.actors[%d]" % actor_index
+	if not value is Dictionary:
+		return "%s must be an object" % path
+	var actor: Dictionary = value
+	var closure_error := _closed_dictionary_error(actor, ACTOR_SUMMARY_KEYS, path)
+	if not closure_error.is_empty():
+		return closure_error
+	for key in ["actor_id", "creature_id", "action_phase"]:
+		if String(actor[key]).is_empty():
+			return "%s.%s must not be empty" % [path, key]
+	if not actor["team"] is int or not int(actor["team"]) in [0, 1]:
+		return "%s.team must be 0 or 1" % path
+	if not actor["alive"] is bool:
+		return "%s.alive must be a boolean" % path
+	var position_error := _number_pair_error(actor["world_position_px"], "%s.world_position_px" % path)
+	if not position_error.is_empty():
+		return position_error
+	var footprint_error := _pixel_rect_error(actor["footprint_px"], "%s.footprint_px" % path)
+	if not footprint_error.is_empty():
+		return footprint_error
+	return ""
+
+
+static func _closed_dictionary_error(
+	value: Dictionary,
+	required_keys: Array,
+	path: String
+) -> String:
+	for key in value.keys():
+		if not key is String or not required_keys.has(String(key)):
+			return "%s has unexpected field '%s'" % [path, String(key)]
+	for key in required_keys:
+		if not value.has(key):
+			return "%s is missing '%s'" % [path, key]
+	return ""
+
+
+static func _number_pair_error(value: Variant, path: String) -> String:
+	if not value is Dictionary:
+		return "%s must be an object" % path
+	var pair: Dictionary = value
+	var closure_error := _closed_dictionary_error(pair, ["x", "y"], path)
+	if not closure_error.is_empty():
+		return closure_error
+	for key in ["x", "y"]:
+		if not pair[key] is int and not pair[key] is float:
+			return "%s.%s must be a number" % [path, key]
+		if not is_finite(float(pair[key])):
+			return "%s.%s must be finite" % [path, key]
+	return ""
+
+
+static func _pixel_rect_error(value: Variant, path: String) -> String:
+	if not value is Dictionary:
+		return "%s must be an object" % path
+	var rect: Dictionary = value
+	var closure_error := _closed_dictionary_error(rect, ["x", "y", "width", "height"], path)
+	if not closure_error.is_empty():
+		return closure_error
+	for key in ["x", "y", "width", "height"]:
+		if not rect[key] is int:
+			return "%s.%s must be an integer" % [path, key]
+	if int(rect["x"]) < 0 or int(rect["y"]) < 0:
+		return "%s origin must be non-negative" % path
+	if int(rect["width"]) < 1 or int(rect["height"]) < 1:
+		return "%s dimensions must be positive" % path
+	return ""
 
 
 func _free_scenario_node(scenario_node: Node2D) -> void:
