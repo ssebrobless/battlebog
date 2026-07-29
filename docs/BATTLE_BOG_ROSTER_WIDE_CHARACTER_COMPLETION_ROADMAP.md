@@ -1075,13 +1075,13 @@ the final animation brief or claim human acceptance.
 
 ```text
 [complete] R0 code foundation at 9e211c8; minimum plan ancestor 710b5d4
-[next]     R0.5 conform Alligator/shared frame data to locked Decisions #23-26
-[next]     R1A split-step movement integration
-[next]     R1B immutable presentation snapshot and compatibility adapter
-[next]     R2A real Arena fixture + PvAI/3v3 camera presets + capture modes
-[next]     R2B semantic output + comparator + synthetic/refusal tests
-[human]    R2BH approve one exact procedural source run as baseline truth
-[next]     R2B.2 promote only the approved baseline and rerun comparator/full suite
+[complete] R0.5 conform Alligator/shared frame data to locked Decisions #23-26
+[complete] R1A split-step movement integration
+[complete] R1B immutable presentation snapshot and compatibility adapter
+[complete] R2A real Arena fixture + PvAI/3v3 camera presets + capture modes
+[complete] R2B semantic output + comparator + synthetic/refusal tests
+[complete] R2BH approve source manifest 7efeb175 at decision commit dd10fb0
+[complete] R2B.2 promote baseline b577fac9; comparator and 100-test suite pass at 261ce62
 [next]     R2C full procedural Alligator player-camera/shoreline evidence
 [next]     R2D expanded screenshot-free performance runner and telemetry artifacts
 [next]     R2E snapshot-only visual-adapter boundary
