@@ -1,0 +1,1578 @@
+{
+  "schema_version": 1,
+  "kind": "battle_bog_visual_baseline",
+  "platform": "windows-x86_64-godot4.6-gl_compatibility",
+  "renderer": "mobile",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "godot_version": "4.6.stable.official.89cea1439",
+  "provenance": {
+    "git_sha": "361dddcd533b65a808bf3b7a9363fc25776e508f",
+    "git_clean": true,
+    "visual_manifest_sha256": "fa67e85d6f766a7743b45ce9d2cf987919f89599811b4b43893ae1d828bbbc52",
+    "project_settings_sha256": "5f319c32a22a5ccec702e9db03921aa79d8f30b930ffaa051faf623818a1876c",
+    "semantic_schema_sha256": "fac0f937aff2330fad6557e2fe69a4148e9fad4627f1e7df179844caa8da7edd",
+    "image_metrics_sha256": "646f9cb80e6a8b497214918d104900bf020ac3677091b4ca211c30b8cddaddc0",
+    "artifact_checker_sha256": "b837c0cfe23ca4551d02c4c6030484d011a47be8c67937f1fe3efbb16ad5fb38",
+    "godot_executable_sha256": "fc759f9d296fe54f09ab66d41df6ddd2d278493b0e71109f6688ef029ad271ae",
+    "godot_version": "4.6.stable.official.89cea1439",
+    "godot_build": "4.6-stable (official)",
+    "renderer": "mobile",
+    "renderer_driver": "vulkan",
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "fixed_step_hz": 60,
+    "camera_preset": "PvAI",
+    "camera_zoom": {
+      "x": 2.6,
+      "y": 2.6
+    },
+    "capture_mode": "Diagnostic",
+    "scenario_id": "neutral_smoke",
+    "host": {
+      "os": "Microsoft Windows 10.0.19045 ",
+      "os_architecture": "X64",
+      "process_architecture": "X64"
+    },
+    "gpu": {
+      "name": "NVIDIA GeForce RTX 2070 SUPER",
+      "vendor": "NVIDIA",
+      "api_version": "1.4.325",
+      "driver": "vulkan",
+      "display_server": "Windows"
+    }
+  },
+  "source": {
+    "source_manifest_sha256": "7efeb175a3d5475088725a74ef4bcde6b403b138f5377083992e671e7b2d0d5a",
+    "primary_run_id": "r2bh-neutral-361dddc-a",
+    "verification_run_ids": [
+      "r2bh-neutral-361dddc-a",
+      "r2bh-neutral-361dddc-b",
+      "r2bh-neutral-361dddc-c"
+    ],
+    "git_sha": "361dddcd533b65a808bf3b7a9363fc25776e508f"
+  },
+  "approval": {
+    "token": "HUMAN_APPROVED",
+    "approval_json_sha256": "d5b66d1f734222805eee9f4b3a329c8f45ccaf6d91e37a66c410173dc5d2c624",
+    "reviewer": "fishe",
+    "reason": "User reviewed the exact immutable R2BH capture packet and replied proceed, authorizing initial baseline promotion.",
+    "promoted_utc": "2026-07-29T01:41:19.7803915Z",
+    "replace": false,
+    "old_manifest_sha256": null
+  },
+  "entries": [
+    {
+      "id": "neutral_smoke.frame_000000",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000000.png",
+      "semantic_file": "neutral_smoke.frame_000000.json",
+      "png_path": "captures/neutral_smoke.frame_000000.png",
+      "semantic_path": "captures/neutral_smoke.frame_000000.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "d1e97c7f8945f5d741220429821d57276fd02f69acd5ff165959dff7912a9c9d",
+      "frame": 0,
+      "tick": 1,
+      "seed": 424242,
+      "anchor": "NEUTRAL+0",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [
+        "NEUTRAL+0"
+      ],
+      "snapshot_sha256": "1277f3572147117d25b7dc39f4a16c8ac61b1206c89075fc28008c0bb93792e5",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000001",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000001.png",
+      "semantic_file": "neutral_smoke.frame_000001.json",
+      "png_path": "captures/neutral_smoke.frame_000001.png",
+      "semantic_path": "captures/neutral_smoke.frame_000001.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "8d69984319e5bbba1e5b972b356c30656682ea225c0f0e34c2a016d6180847d8",
+      "frame": 1,
+      "tick": 2,
+      "seed": 424242,
+      "anchor": "frame:1",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "3cd7990522ba525270bb0f4056329afd4b32fd79de722564fe1531173d3042da",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000002",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000002.png",
+      "semantic_file": "neutral_smoke.frame_000002.json",
+      "png_path": "captures/neutral_smoke.frame_000002.png",
+      "semantic_path": "captures/neutral_smoke.frame_000002.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "559d37a4a470d3b1fa2143080f3ef6c377b502397b8a9566e162388088465f31",
+      "frame": 2,
+      "tick": 3,
+      "seed": 424242,
+      "anchor": "frame:2",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "d4e2a24629995c1fc0efda9b3ebfa2c6cdd3298cb8fc283859d8531449e94944",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000003",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000003.png",
+      "semantic_file": "neutral_smoke.frame_000003.json",
+      "png_path": "captures/neutral_smoke.frame_000003.png",
+      "semantic_path": "captures/neutral_smoke.frame_000003.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "88eb028321abd9609cf546aedf58d3da7af4ad482afa35ae36eaa315cc328946",
+      "frame": 3,
+      "tick": 4,
+      "seed": 424242,
+      "anchor": "frame:3",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "2e98792092cd6437f6d8f308065c1535901623bd4317f7effc320abee715ee64",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000004",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000004.png",
+      "semantic_file": "neutral_smoke.frame_000004.json",
+      "png_path": "captures/neutral_smoke.frame_000004.png",
+      "semantic_path": "captures/neutral_smoke.frame_000004.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "12e72b00cf0ecf8111d863bd17e2ce65ae6fd78e19a1732fdbc99e929db3f7c5",
+      "frame": 4,
+      "tick": 5,
+      "seed": 424242,
+      "anchor": "frame:4",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "b86444f10eb17c2b5131d9df23cc68a619584025ead3bd4e3db4acb6d9787e26",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000005",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000005.png",
+      "semantic_file": "neutral_smoke.frame_000005.json",
+      "png_path": "captures/neutral_smoke.frame_000005.png",
+      "semantic_path": "captures/neutral_smoke.frame_000005.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "0ca7a19fac951cb4c38e014b7f6cca695f88edf80370dcc97f0c209cc81969d1",
+      "frame": 5,
+      "tick": 6,
+      "seed": 424242,
+      "anchor": "frame:5",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "0239e788ba4f124063852008ecd097fb5d4f9c4c1627af53b494c37ce60a3af4",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000006",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000006.png",
+      "semantic_file": "neutral_smoke.frame_000006.json",
+      "png_path": "captures/neutral_smoke.frame_000006.png",
+      "semantic_path": "captures/neutral_smoke.frame_000006.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "07a0ad99cf4de401150f14fb312c93b83bef54c30e2879b8ef2635b717c81f57",
+      "frame": 6,
+      "tick": 7,
+      "seed": 424242,
+      "anchor": "frame:6",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "55f58e1d834853bf18c4569e2809e8ec5c207c71a36327e7c73c0e13da1fc238",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000007",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000007.png",
+      "semantic_file": "neutral_smoke.frame_000007.json",
+      "png_path": "captures/neutral_smoke.frame_000007.png",
+      "semantic_path": "captures/neutral_smoke.frame_000007.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "68af815c54ea7396e1f23fcac9854d6f6bb9285d93d5ef816f0aa50bb96c9cc5",
+      "frame": 7,
+      "tick": 8,
+      "seed": 424242,
+      "anchor": "frame:7",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "686c487d95b655be6c8ab89855ed7bc1b168bad3f39581714dc45800ff126b09",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000008",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000008.png",
+      "semantic_file": "neutral_smoke.frame_000008.json",
+      "png_path": "captures/neutral_smoke.frame_000008.png",
+      "semantic_path": "captures/neutral_smoke.frame_000008.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "0897e486f8464b75d7f2ef0b18ca8a025c9f1045033a45b4134a0e65dccf937d",
+      "frame": 8,
+      "tick": 9,
+      "seed": 424242,
+      "anchor": "frame:8",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "5cb1f32453cc703be3ebebfc5c1a66e2a1ce1357ac243625a9c7aabb4d9c204c",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000009",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000009.png",
+      "semantic_file": "neutral_smoke.frame_000009.json",
+      "png_path": "captures/neutral_smoke.frame_000009.png",
+      "semantic_path": "captures/neutral_smoke.frame_000009.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "0a3acfd8ac5746a0f45ab0c28d1381c9f0b1f2ad2471f801843f406580b42fec",
+      "frame": 9,
+      "tick": 10,
+      "seed": 424242,
+      "anchor": "frame:9",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "da885f6b114db2b9a7cfcdffe2b264ff3ab948483070cb0a27b7985856abacb8",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000010",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000010.png",
+      "semantic_file": "neutral_smoke.frame_000010.json",
+      "png_path": "captures/neutral_smoke.frame_000010.png",
+      "semantic_path": "captures/neutral_smoke.frame_000010.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "b2e8e4f9a73893a313236ba001c04cea5fd7bcf190186346dbda94f13dd602e8",
+      "frame": 10,
+      "tick": 11,
+      "seed": 424242,
+      "anchor": "frame:10",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "c714cb0a65ba1646db78a27b4f9658a692c2568ff2a0cc67152a582ad349643d",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000011",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000011.png",
+      "semantic_file": "neutral_smoke.frame_000011.json",
+      "png_path": "captures/neutral_smoke.frame_000011.png",
+      "semantic_path": "captures/neutral_smoke.frame_000011.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "eaf4933b4533d1e8609d3b93e09332754ae68dd0152755b24fb562b4a4fe31ec",
+      "frame": 11,
+      "tick": 12,
+      "seed": 424242,
+      "anchor": "frame:11",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "085e35b1ae197fdbde423e96833698e94aee817a08b56aa3fc7828988437017f",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000012",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000012.png",
+      "semantic_file": "neutral_smoke.frame_000012.json",
+      "png_path": "captures/neutral_smoke.frame_000012.png",
+      "semantic_path": "captures/neutral_smoke.frame_000012.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "0735c34d56322432debea471fbc3a3697d0693e838d7ad4f54b0744ba029466c",
+      "frame": 12,
+      "tick": 13,
+      "seed": 424242,
+      "anchor": "frame:12",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "44658b8831499d6e4ef66112e45ac21a3ddbbb1bcab39d9ab84332e3231c4d31",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000013",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000013.png",
+      "semantic_file": "neutral_smoke.frame_000013.json",
+      "png_path": "captures/neutral_smoke.frame_000013.png",
+      "semantic_path": "captures/neutral_smoke.frame_000013.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "e9bb3a5855f4e33ca87988a5b2596c307e2bb2bf7ca469f4118d6df12cf9b399",
+      "frame": 13,
+      "tick": 14,
+      "seed": 424242,
+      "anchor": "frame:13",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "4721140a6b69efd1a3f84a207a502acffc638cdfcdabeb424ba079aa2698c386",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000014",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000014.png",
+      "semantic_file": "neutral_smoke.frame_000014.json",
+      "png_path": "captures/neutral_smoke.frame_000014.png",
+      "semantic_path": "captures/neutral_smoke.frame_000014.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "8c1d262796bfc0b5f1a2ed0464fbdf954c1f0f93251d63e61b5933fe18ba05b6",
+      "frame": 14,
+      "tick": 15,
+      "seed": 424242,
+      "anchor": "frame:14",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "d8f2aa69b12217dd26e9f9e4b0ec50e80cdb152e97fe98ad14c8b24ff0d86eea",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000015",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000015.png",
+      "semantic_file": "neutral_smoke.frame_000015.json",
+      "png_path": "captures/neutral_smoke.frame_000015.png",
+      "semantic_path": "captures/neutral_smoke.frame_000015.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "e24790285d31f8c8831effe0d5f35c067977bab5a42f5e9b9b011f5bfcb112ed",
+      "frame": 15,
+      "tick": 16,
+      "seed": 424242,
+      "anchor": "frame:15",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "d5447f1ba704d13ef1bace571141f06bfa5d7914d0556c0336587676f60882f9",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000016",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000016.png",
+      "semantic_file": "neutral_smoke.frame_000016.json",
+      "png_path": "captures/neutral_smoke.frame_000016.png",
+      "semantic_path": "captures/neutral_smoke.frame_000016.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "898c9893da67ed81e2ceb8b614af59841b65268fc464a737723cd4e4881e054a",
+      "frame": 16,
+      "tick": 17,
+      "seed": 424242,
+      "anchor": "frame:16",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "2536b8af5e4b3211f7f596b7722f5cacb82bc11cd2921c6ed8a5a1dbc17d1993",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000017",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000017.png",
+      "semantic_file": "neutral_smoke.frame_000017.json",
+      "png_path": "captures/neutral_smoke.frame_000017.png",
+      "semantic_path": "captures/neutral_smoke.frame_000017.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "0bb341b5dbf3eda1f7021be3191352a0ff39d7001ed3d910bcd4810ec0f06b18",
+      "frame": 17,
+      "tick": 18,
+      "seed": 424242,
+      "anchor": "frame:17",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "a3d42743de8d30d6eda90e4a78c53aaffc7cc32865120bc3a5a636776b18e060",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000018",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000018.png",
+      "semantic_file": "neutral_smoke.frame_000018.json",
+      "png_path": "captures/neutral_smoke.frame_000018.png",
+      "semantic_path": "captures/neutral_smoke.frame_000018.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "59a5e891219fc1321317094206e0b88313630dae1b898f23a8188fe3679838b3",
+      "frame": 18,
+      "tick": 19,
+      "seed": 424242,
+      "anchor": "frame:18",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "524b0bdcbdc67f7dc579a3991da4e146aa5365a9e25d7e8340afa6b3b0c9793f",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000019",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000019.png",
+      "semantic_file": "neutral_smoke.frame_000019.json",
+      "png_path": "captures/neutral_smoke.frame_000019.png",
+      "semantic_path": "captures/neutral_smoke.frame_000019.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "7bf0d67d6fbd4ad5dac846d95381d36800c3619b5712463fb254291306a73d17",
+      "frame": 19,
+      "tick": 20,
+      "seed": 424242,
+      "anchor": "frame:19",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "88fb4ed05d61355b58a9badfd1a171d7b5b79b4a7d22c5a41026ce32987fcaa5",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000020",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000020.png",
+      "semantic_file": "neutral_smoke.frame_000020.json",
+      "png_path": "captures/neutral_smoke.frame_000020.png",
+      "semantic_path": "captures/neutral_smoke.frame_000020.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "45431faedf27270eaac66a701c1e57808d9047212a93004c35898945c01a4fba",
+      "frame": 20,
+      "tick": 21,
+      "seed": 424242,
+      "anchor": "frame:20",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "21e8e76e28d5c9c72ede1e28508dd16e3210d2f59bc0c62888151857dc0e002a",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000021",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000021.png",
+      "semantic_file": "neutral_smoke.frame_000021.json",
+      "png_path": "captures/neutral_smoke.frame_000021.png",
+      "semantic_path": "captures/neutral_smoke.frame_000021.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "56cc7e128475c46bc3b3c67e7ca608c1519c785807fc32743570b7c6c6b7d7c2",
+      "frame": 21,
+      "tick": 22,
+      "seed": 424242,
+      "anchor": "frame:21",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "18359ee64d74268c70c9cf4385e7486784fe0d88582d9738cf6866638f5dbda2",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000022",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000022.png",
+      "semantic_file": "neutral_smoke.frame_000022.json",
+      "png_path": "captures/neutral_smoke.frame_000022.png",
+      "semantic_path": "captures/neutral_smoke.frame_000022.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "1a232357f73ed9dff6d402c9dc4b1cdca33586c8b4d5e3723b8a9104d028dbe9",
+      "frame": 22,
+      "tick": 23,
+      "seed": 424242,
+      "anchor": "frame:22",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "bf9466bcfb8b3fba6a3c3cd9d02870124bc92bde59b80247068289861d2d4019",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000023",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000023.png",
+      "semantic_file": "neutral_smoke.frame_000023.json",
+      "png_path": "captures/neutral_smoke.frame_000023.png",
+      "semantic_path": "captures/neutral_smoke.frame_000023.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "c6d73223d43f5dd2317c5cca9e5fbe05b958fa07c27b89d6a9cd288500d3d8ac",
+      "frame": 23,
+      "tick": 24,
+      "seed": 424242,
+      "anchor": "frame:23",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "e93eab80aaded8f9fc83802a76ebacee68f06c03c82ce938950f68a3b66f409a",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000024",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000024.png",
+      "semantic_file": "neutral_smoke.frame_000024.json",
+      "png_path": "captures/neutral_smoke.frame_000024.png",
+      "semantic_path": "captures/neutral_smoke.frame_000024.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "3f0860dc8721f627e6479f230a0fd5d0c4d317296f31a2a54b27f938a062f825",
+      "frame": 24,
+      "tick": 25,
+      "seed": 424242,
+      "anchor": "frame:24",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "72e2ca8e6efff30a2e82f2760139ba8f62340b80fbd08f7842dfeb4618e3ae6c",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000025",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000025.png",
+      "semantic_file": "neutral_smoke.frame_000025.json",
+      "png_path": "captures/neutral_smoke.frame_000025.png",
+      "semantic_path": "captures/neutral_smoke.frame_000025.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "a713ea5ffba195e3bfabb16996dc87bdda1b24ea4f83a16928abc606f6687bdd",
+      "frame": 25,
+      "tick": 26,
+      "seed": 424242,
+      "anchor": "frame:25",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "9c2dee0156e6b32f8ed75aecf37deeb208750b2f7e9710a6501d594e5cecc3d7",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000026",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000026.png",
+      "semantic_file": "neutral_smoke.frame_000026.json",
+      "png_path": "captures/neutral_smoke.frame_000026.png",
+      "semantic_path": "captures/neutral_smoke.frame_000026.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "6672e5b4f0802f99dfc3896496311b67ec3a71ce8f74d5956157cf162e6ee13a",
+      "frame": 26,
+      "tick": 27,
+      "seed": 424242,
+      "anchor": "frame:26",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "82c6adc020993351116890e53aaa69b655b6ea5b13cccb3d6d3d63ff58f94c8f",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000027",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000027.png",
+      "semantic_file": "neutral_smoke.frame_000027.json",
+      "png_path": "captures/neutral_smoke.frame_000027.png",
+      "semantic_path": "captures/neutral_smoke.frame_000027.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "b0b2c737c8202dad1c4f80154e4e3434b6ab77459b128e10067d977b27d50ab5",
+      "frame": 27,
+      "tick": 28,
+      "seed": 424242,
+      "anchor": "frame:27",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "c99d9a04db0078e4d420b41e71e9d87cc042ee5acf6ccf4184ead38982681a20",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000028",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000028.png",
+      "semantic_file": "neutral_smoke.frame_000028.json",
+      "png_path": "captures/neutral_smoke.frame_000028.png",
+      "semantic_path": "captures/neutral_smoke.frame_000028.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "26627b929a3dbb60601f3d659e240fc8996497028063de34daef28c0fbbf8eb4",
+      "frame": 28,
+      "tick": 29,
+      "seed": 424242,
+      "anchor": "frame:28",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "434cb1f38d881bfa1d6d11813b83eef1afbacc84a44d7649e3c30004813e4514",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000029",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000029.png",
+      "semantic_file": "neutral_smoke.frame_000029.json",
+      "png_path": "captures/neutral_smoke.frame_000029.png",
+      "semantic_path": "captures/neutral_smoke.frame_000029.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "e5b9667edb2245997e8dfd52261c6c0169520623aca1fb23cfcb59627627c573",
+      "frame": 29,
+      "tick": 30,
+      "seed": 424242,
+      "anchor": "frame:29",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "166e5a45c0704f1206c4020a2ded1874d49eebea5c6b71dc4451592a262db681",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000030",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000030.png",
+      "semantic_file": "neutral_smoke.frame_000030.json",
+      "png_path": "captures/neutral_smoke.frame_000030.png",
+      "semantic_path": "captures/neutral_smoke.frame_000030.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "e050845910d326727f1500c56c397823143fb44471a9da89451dbe75c076a7d9",
+      "frame": 30,
+      "tick": 31,
+      "seed": 424242,
+      "anchor": "NEUTRAL_END",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [
+        "NEUTRAL_END"
+      ],
+      "snapshot_sha256": "5f106496b56d6fe5858993bd703a63286ea08a92a22d580837100af5cd062370",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    },
+    {
+      "id": "neutral_smoke.frame_000031",
+      "scenario_id": "neutral_smoke",
+      "camera_preset": "PvAI",
+      "capture_mode": "Diagnostic",
+      "png_file": "neutral_smoke.frame_000031.png",
+      "semantic_file": "neutral_smoke.frame_000031.json",
+      "png_path": "captures/neutral_smoke.frame_000031.png",
+      "semantic_path": "captures/neutral_smoke.frame_000031.json",
+      "png_sha256": "097a710ce1635720248d1f016f2e6fc5a59556b871507fc630a71290d5f9de32",
+      "semantic_sha256": "a96f9d24ecc93577adf2492c028b65b3a7a904597ac086d834bfa22b840603ba",
+      "frame": 31,
+      "tick": 32,
+      "seed": 424242,
+      "anchor": "frame:31",
+      "anchors": {
+        "NEUTRAL+0": 0,
+        "NEUTRAL_END": 30
+      },
+      "anchors_sha256": "251fda6ef335d8c13bf8e482d90ece98426562f50e116710e98e551bcb448961",
+      "anchors_at_frame": [],
+      "snapshot_sha256": "387309f3d3ee6c7d9eed5f06aedcc3b876f1a5ab122b60212fe45c46f7e8cc78",
+      "critical_regions_px": {
+        "body": [
+          {
+            "x": 543,
+            "y": 263,
+            "width": 194,
+            "height": 194
+          }
+        ],
+        "contact": [],
+        "telegraph": []
+      },
+      "critical_roi_px": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      },
+      "roi": {
+        "x": 543,
+        "y": 263,
+        "width": 194,
+        "height": 194
+      }
+    }
+  ]
+}
