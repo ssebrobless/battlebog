@@ -53,6 +53,21 @@ function Resolve-Godot {
 	throw "Could not locate Godot."
 }
 
+function Resolve-PowerShellHost {
+	$currentHost = (Get-Process -Id $PID).Path
+	if (-not [string]::IsNullOrWhiteSpace($currentHost) -and
+		(Test-Path -LiteralPath $currentHost -PathType Leaf)) {
+		return (Resolve-Path -LiteralPath $currentHost).Path
+	}
+	foreach ($candidate in @("pwsh", "powershell")) {
+		$resolved = Resolve-Executable $candidate
+		if ($null -ne $resolved) {
+			return $resolved
+		}
+	}
+	throw "Could not locate a PowerShell host for artifact validation."
+}
+
 function Resolve-RepoPath {
 	param([string]$Path, [string]$RepoRoot)
 	if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -383,6 +398,7 @@ if (-not [string]::IsNullOrWhiteSpace($Scenario)) {
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptRoot "..\..")).Path
+$powerShellPath = Resolve-PowerShellHost
 $lockedBaseline = [IO.Path]::GetFullPath(
 	(Join-Path $repoRoot "tests\visual\baselines\$PlatformSlug")
 )
@@ -530,7 +546,7 @@ try {
 		(Get-Sha256 $artifactCheck) `
 		"artifact_checker_sha256"
 	$artifactOutput = @(
-		& (Join-Path $PSHOME "powershell.exe") -NoProfile -ExecutionPolicy Bypass `
+		& $powerShellPath -NoProfile -ExecutionPolicy Bypass `
 			-File $artifactCheck -ArtifactRoot $candidatePath `
 			-Manifest (Join-Path $repoRoot "tests\visual\manifest.json") `
 			-SemanticSchema (Join-Path $repoRoot "tests\visual\semantic_capture.schema.json") `
