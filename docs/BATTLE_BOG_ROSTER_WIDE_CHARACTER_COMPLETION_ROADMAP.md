@@ -581,6 +581,15 @@ R2A extends the manifest with
 `alligator_latch_death_roll`, `alligator_death_respawn` and
 `alligator_six_actor_density`.
 
+R2C scenario fixture descriptors are applied before each fresh Arena instance.
+The density workload is six registered Alligators in stable alternating
+Blue/Red slot order and remains active through frame 2,100 for R2D reuse.
+Semantic schema version 2 carries closed scenario evidence for exact action
+phase, presentation band, signed edge distance, simulation terrain and
+multi-actor summaries. The R2C aggregate index contains 20 canonical
+scenario-camera-mode tuples, each bound to three independent deterministic
+capture roots.
+
 The comparator never writes a baseline. Promotion requires three matching
 passed captures from one clean HEAD/build/renderer/viewport contract, reviewer
 ID, written reason and old-hash verification. Replacing an existing baseline

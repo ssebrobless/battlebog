@@ -13,6 +13,8 @@ var wake_boss := false
 var center_boss := false
 var simulation_seed := -1
 var simulation_config_errors: Array[String] = []
+var _visual_fixture_blue_squad_ids: Array[String] = []
+var _visual_fixture_red_squad_ids: Array[String] = []
 
 func _ready() -> void:
 	var perf_requested := false
@@ -93,6 +95,8 @@ func set_selected_creature(creature_id: String) -> void:
 	selected_squad_ids = _build_squad_around(playable_id)
 
 func get_selected_squad_ids() -> Array[String]:
+	if _visual_fixture_blue_squad_ids.size() == 3:
+		return _visual_fixture_blue_squad_ids.duplicate()
 	return _normalize_squad_ids(selected_squad_ids)
 
 func set_selected_squad_ids(creature_ids: Array) -> void:
@@ -101,7 +105,30 @@ func set_selected_squad_ids(creature_ids: Array) -> void:
 		selected_creature_id = selected_squad_ids[0]
 
 func get_selected_red_squad_ids() -> Array[String]:
+	if _visual_fixture_red_squad_ids.size() == 3:
+		return _visual_fixture_red_squad_ids.duplicate()
 	return selected_red_squad_ids.duplicate()
+
+func set_visual_fixture_rosters(blue_ids: Array, red_ids: Array) -> bool:
+	if not _is_valid_visual_fixture_roster(blue_ids) \
+			or not _is_valid_visual_fixture_roster(red_ids):
+		return false
+	_visual_fixture_blue_squad_ids.assign(blue_ids)
+	_visual_fixture_red_squad_ids.assign(red_ids)
+	return true
+
+func clear_visual_fixture_rosters() -> void:
+	_visual_fixture_blue_squad_ids.clear()
+	_visual_fixture_red_squad_ids.clear()
+
+func _is_valid_visual_fixture_roster(creature_ids: Array) -> bool:
+	if creature_ids.size() != 3:
+		return false
+	for creature_value in creature_ids:
+		var creature_id := String(creature_value).strip_edges()
+		if not PLAYABLE_SQUAD_POOL.has(creature_id):
+			return false
+	return true
 
 func set_selected_red_squad_ids(creature_ids: Array) -> void:
 	var normalized := _normalize_explicit_squad_ids(creature_ids)

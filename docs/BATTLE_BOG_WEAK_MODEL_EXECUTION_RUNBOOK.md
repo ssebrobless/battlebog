@@ -593,7 +593,12 @@ scripts/test/visual/scenarios/alligator_shoreline_transition_scenario.gd
 scripts/test/visual/scenarios/alligator_latch_death_roll_scenario.gd
 scripts/test/visual/scenarios/alligator_death_respawn_scenario.gd
 scripts/test/visual/scenarios/alligator_six_actor_density_scenario.gd
+scripts/game/game_config.gd
+scripts/test/visual/visual_regression_arena.gd
+scripts/test/battle_bog_visual_regression_arena_check.gd
+scripts/test/run_r2c_visual_matrix.ps1
 tests/visual/manifest.json
+tests/visual/semantic_capture.schema.json
 scripts/test/battle_bog_visual_capture_artifact_check.ps1
 ```
 
@@ -621,6 +626,38 @@ Visual bands are deterministic: `dry` is land farther than `0.25 u` from water;
 `mud` is land within `0.25 u`; `shallow` is water with edge distance
 `<=0.75 u`; `deep` is water beyond `0.75 u`. These are presentation bands over
 existing land/shallow/water simulation truth and never change gameplay terrain.
+
+Locked R2C fixture and evidence decisions:
+
+- A scenario may expose `get_fixture_descriptor()` before Arena construction.
+  The descriptor is closed to `blue_roster` and `red_roster`, each with exactly
+  three valid creature IDs. The visual runner applies it before every dry,
+  validation and capture Arena instance so slot and stock metadata stay truthful.
+- `GameConfig` exposes a default-off visual-fixture roster override used only by
+  the visual runner. It validates two exact three-slot playable rosters but
+  permits repeated species. Normal selection and simulation-request APIs keep
+  their duplicate rejection unchanged.
+- The density fixture uses six real registered Alligators, ordered
+  `Blue0, Red0, Blue1, Red1, Blue2, Red2`, with presentation IDs
+  `fixture:alligator_six_actor_density:0..5`. Its deterministic choreography
+  repeats through at least frame 2,100 so R2D measures active work.
+- Semantic schema version 2 adds a closed `scenario_evidence` object containing
+  `action_phase`, `presentation_band`, `edge_distance_px`, `simulation_terrain`,
+  and closed actor summaries. Production `channel` and `exit` remain exact in
+  `action_phase`; top-level `phase` continues mapping them to `active` and
+  `recovery` for the existing visual vocabulary.
+- A dead Alligator is allowed to disappear immediately. Death evidence uses its
+  canonical alive/death/respawn fields and last-known footprint; it does not
+  invent a visible death animation that production does not provide.
+- Diagnostic overlays are owned by scenarios and may draw only when
+  `capture_mode == "Diagnostic"`. Evaluator scenarios create no overlay node or
+  draw command and report `diagnostic_labels == false`.
+- The aggregate index has exactly 20 canonical tuple entries. Each entry binds
+  three independently launched physical capture roots and their artifact hashes;
+  all three must be byte-identical after run metadata is excluded. This satisfies
+  the three-run determinism rule without misreporting 60 canonical tuples.
+- R2C has no Alligator baseline. Comparator status is `not_applicable` unless a
+  matching approved baseline already exists; R2C never promotes one.
 
 ### R2D Performance Evidence
 

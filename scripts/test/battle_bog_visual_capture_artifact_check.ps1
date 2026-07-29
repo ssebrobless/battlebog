@@ -328,6 +328,169 @@ function Get-ExpectedFrames {
 	return @($first..$last)
 }
 
+function Get-CaptureAtAnchor {
+	param(
+		[object[]]$Captures,
+		[object]$Anchors,
+		[string]$Anchor,
+		[string]$ScenarioId
+	)
+	$frame = Require-Integer $Anchors $Anchor "$ScenarioId.named_anchors"
+	$match = @($Captures | Where-Object { [int64]$_.Frame -eq $frame })
+	if ($match.Count -ne 1) {
+		throw "Scenario '$ScenarioId' must capture anchor '$Anchor' exactly once."
+	}
+	return $match[0].State
+}
+
+function Assert-OrderedAnchors {
+	param([object]$Anchors, [string[]]$Names, [string]$ScenarioId)
+	$previous = -1
+	foreach ($name in $Names) {
+		$current = Require-Integer $Anchors $name "$ScenarioId.named_anchors"
+		if ($current -le $previous) {
+			throw "Scenario '$ScenarioId' anchor '$name' is not strictly ordered."
+		}
+		$previous = $current
+	}
+}
+
+function Assert-R2CScenarioEvidence {
+	param([string]$ScenarioId, [object[]]$Captures)
+	if (-not $ScenarioId.StartsWith("alligator_")) {
+		return
+	}
+	$expectedActor = "fixture:${ScenarioId}:0"
+	$expectedTarget = "fixture:${ScenarioId}:1"
+	foreach ($capture in $Captures) {
+		$state = $capture.State
+		if ([int64]$state.seed -ne 307) {
+			throw "Scenario '$ScenarioId' must use seed 307."
+		}
+		if ([string]$state.actor_id -ne $expectedActor -or
+			[string]$state.target_id -ne $expectedTarget) {
+			throw "Scenario '$ScenarioId' reports unstable fixture actor identities."
+		}
+		$evidence = Require-Property $state "scenario_evidence" $capture.Path
+		$null = Require-NonEmptyString $evidence "action_phase" "$($capture.Path).scenario_evidence"
+		$band = Require-NonEmptyString $evidence "presentation_band" "$($capture.Path).scenario_evidence"
+		if ($band -notin @("dry", "mud", "shallow", "deep")) {
+			throw "$($capture.Path).scenario_evidence.presentation_band is invalid."
+		}
+		$null = Require-NonEmptyString $evidence "simulation_terrain" "$($capture.Path).scenario_evidence"
+		$edgeDistance = Require-Property $evidence "edge_distance_px" "$($capture.Path).scenario_evidence"
+		if (-not (Test-JsonNumber $edgeDistance)) {
+			throw "$($capture.Path).scenario_evidence.edge_distance_px must be finite."
+		}
+	}
+
+	$anchors = $Captures[0].State.named_anchors
+	switch ($ScenarioId) {
+		"alligator_player_camera_attack" {
+			$order = @(
+				"HIT_TEL", "HIT_ACTIVE", "HIT_RECOVERY", "HIT_END",
+				"WHIFF_TEL", "WHIFF_ACTIVE", "WHIFF_RECOVERY", "WHIFF_END",
+				"INTERRUPT_TEL", "INTERRUPT_RECOVERY",
+				"SCENARIO_END"
+			)
+			Assert-OrderedAnchors $anchors $order $ScenarioId
+			$interruptApplied = Require-Integer $anchors "INTERRUPT_APPLIED" "$ScenarioId.named_anchors"
+			$interruptTell = Require-Integer $anchors "INTERRUPT_TEL" "$ScenarioId.named_anchors"
+			$interruptRecovery = Require-Integer $anchors "INTERRUPT_RECOVERY" "$ScenarioId.named_anchors"
+			if ($interruptApplied -le $interruptTell -or
+				$interruptApplied -gt $interruptRecovery) {
+				throw "Alligator interruption must occur after startup begins and no later than recovery."
+			}
+			$hit = Get-CaptureAtAnchor $Captures $anchors "HIT_RECOVERY" $ScenarioId
+			$whiff = Get-CaptureAtAnchor $Captures $anchors "WHIFF_RECOVERY" $ScenarioId
+			$interrupted = Get-CaptureAtAnchor $Captures $anchors "INTERRUPT_RECOVERY" $ScenarioId
+			if ([string]$hit.outcome -ne "hit" -or [string]$hit.contact_truth -ne "hit") {
+				throw "Alligator hit attempt lacks truthful hit evidence."
+			}
+			if ([string]$whiff.outcome -ne "whiff" -or [string]$whiff.contact_truth -ne "whiff") {
+				throw "Alligator whiff attempt lacks truthful whiff evidence."
+			}
+			if ([string]$interrupted.outcome -ne "interrupted" -or
+				[string]$interrupted.contact_truth -ne "none") {
+				throw "Alligator interruption lacks truthful no-contact evidence."
+			}
+		}
+		"alligator_shoreline_transition" {
+			$order = @(
+				"DRY_START", "MUD_IN", "SHALLOW_IN", "DEEP_IN",
+				"SHALLOW_OUT", "MUD_OUT", "DRY_RETURN", "SCENARIO_END"
+			)
+			Assert-OrderedAnchors $anchors $order $ScenarioId
+			$expectedBands = [ordered]@{
+				DRY_START = "dry"
+				MUD_IN = "mud"
+				SHALLOW_IN = "shallow"
+				DEEP_IN = "deep"
+				SHALLOW_OUT = "shallow"
+				MUD_OUT = "mud"
+				DRY_RETURN = "dry"
+			}
+			foreach ($pair in $expectedBands.GetEnumerator()) {
+				$state = Get-CaptureAtAnchor $Captures $anchors $pair.Key $ScenarioId
+				if ([string]$state.scenario_evidence.presentation_band -ne $pair.Value) {
+					throw "Shoreline anchor '$($pair.Key)' must report '$($pair.Value)'."
+				}
+			}
+		}
+		"alligator_latch_death_roll" {
+			Assert-OrderedAnchors $anchors @(
+				"BITE_TEL", "BITE_ACTIVE", "LATCH_ATTACHED", "ROLL_STARTUP",
+				"ROLL_CHANNEL", "ROLL_EXIT", "LATCH_RELEASED", "SCENARIO_END"
+			) $ScenarioId
+			$latched = Get-CaptureAtAnchor $Captures $anchors "LATCH_ATTACHED" $ScenarioId
+			$channel = Get-CaptureAtAnchor $Captures $anchors "ROLL_CHANNEL" $ScenarioId
+			$released = Get-CaptureAtAnchor $Captures $anchors "LATCH_RELEASED" $ScenarioId
+			if ([string]$latched.snapshot.latch_target_id -ne $expectedTarget) {
+				throw "Latch evidence does not identify the fixture target."
+			}
+			if ([string]$channel.scenario_evidence.action_phase -ne "channel") {
+				throw "Death Roll channel anchor lacks exact channel evidence."
+			}
+			if ([string]$released.snapshot.latch_target_id -ne "") {
+				throw "Death Roll release anchor retains a stale latch target."
+			}
+		}
+		"alligator_death_respawn" {
+			Assert-OrderedAnchors $anchors @(
+				"BITE_TEL", "LETHAL_DAMAGE", "DEATH", "RESPAWN",
+				"RESPAWN_SETTLED", "SCENARIO_END"
+			) $ScenarioId
+			$dead = Get-CaptureAtAnchor $Captures $anchors "DEATH" $ScenarioId
+			$respawned = Get-CaptureAtAnchor $Captures $anchors "RESPAWN" $ScenarioId
+			if ([bool]$dead.snapshot.alive -or -not [bool]$respawned.snapshot.alive) {
+				throw "Death/respawn anchors do not prove the production alive transition."
+			}
+		}
+		"alligator_six_actor_density" {
+			Assert-OrderedAnchors $anchors @(
+				"SPREAD", "CONVERGENCE", "THREE_ATTACKS", "PEAK_EFFECTS",
+				"REACQUIRE", "AFTERMATH", "SCENARIO_END"
+			) $ScenarioId
+			$pressure = Get-CaptureAtAnchor $Captures $anchors "THREE_ATTACKS" $ScenarioId
+			$actors = @($pressure.scenario_evidence.actors)
+			if ($actors.Count -ne 6) {
+				throw "Density evidence must contain exactly six actors."
+			}
+			$ids = @($actors | ForEach-Object { [string]$_.actor_id } | Sort-Object -Unique)
+			$blue = @($actors | Where-Object { [int]$_.team -eq 0 })
+			$red = @($actors | Where-Object { [int]$_.team -eq 1 })
+			$alligators = @($actors | Where-Object { [string]$_.creature_id -eq "alligator" })
+			if ($ids.Count -ne 6 -or $blue.Count -ne 3 -or $red.Count -ne 3 -or
+				$alligators.Count -ne 6) {
+				throw "Density evidence must prove six unique registered Alligators, three per team."
+			}
+			if (@($pressure.critical_regions_px.body).Count -ne 6) {
+				throw "Density pressure frame must expose six body regions."
+			}
+		}
+	}
+}
+
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptRoot "..\..")).Path
 $artifactPath = Resolve-RepositoryPath $ArtifactRoot $repoRoot
@@ -571,6 +734,7 @@ foreach ($scenarioEntry in $scenarioEntries) {
 	if (($expectedFrames -join ",") -ne ($actualFrames -join ",")) {
 		throw "Scenario '$scenarioId' frames differ. Expected [$($expectedFrames -join ', ')], got [$($actualFrames -join ', ')]."
 	}
+	Assert-R2CScenarioEvidence $scenarioId $captures
 }
 
 $selectedIds = @($scenarioEntries | ForEach-Object { [string]$_.id })

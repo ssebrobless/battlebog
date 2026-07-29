@@ -239,6 +239,9 @@ func _check_runtime_contract_source() -> void:
 		"res://scripts/visual/visual_style.gd"
 	)
 	var creature_source := FileAccess.get_file_as_string("res://scripts/sim/creature.gd")
+	var game_config_source := FileAccess.get_file_as_string(
+		"res://scripts/game/game_config.gd"
+	)
 	_expect(
 		is_equal_approx(
 			VisualStyle._visual_time_msec({"visual_time_msec": 125.0}),
@@ -255,6 +258,12 @@ func _check_runtime_contract_source() -> void:
 		creature_source.contains("anim[\"visual_time_msec\"] = visual_time_msec") \
 			and not creature_source.contains("Time.get_ticks_msec()"),
 		"Arena creatures must render from simulation-derived visual time."
+	)
+	_expect(
+		game_config_source.contains("func set_visual_fixture_rosters(") \
+			and game_config_source.contains("func clear_visual_fixture_rosters()") \
+			and game_config_source.contains("_visual_fixture_blue_squad_ids"),
+		"GameConfig must expose the default-off exact visual fixture roster boundary."
 	)
 
 

@@ -115,7 +115,7 @@ func get_capture_state() -> Dictionary:
 		action_phase = "scenario_end"
 
 	var contact_regions := []
-	if has_contact_point:
+	if has_contact_point and outcome == "hit":
 		contact_regions.append(_point_rect(contact_point, 10.0))
 	var telegraph_regions := []
 	if phase == "startup" and not projected_shape.is_empty():

@@ -71,6 +71,8 @@ func _parse_arguments() -> void:
 
 
 func _configure_fixture_game() -> void:
+	if GameConfig.has_method("clear_visual_fixture_rosters"):
+		GameConfig.clear_visual_fixture_rosters()
 	GameConfig.selected_mode = "1v1"
 	GameConfig.set_selected_squad_ids(FIXTURE_BLUE_ROSTER)
 	GameConfig.set_selected_red_squad_ids(FIXTURE_RED_ROSTER)
@@ -87,8 +89,12 @@ func _reset_real_arena(seed: int, fixture_descriptor: Dictionary) -> bool:
 	var arena_scene: PackedScene = load("res://scenes/Arena.tscn")
 	if arena_scene == null:
 		return false
-	GameConfig.set_selected_squad_ids(fixture_descriptor["blue_roster"])
-	GameConfig.set_selected_red_squad_ids(fixture_descriptor["red_roster"])
+	if not GameConfig.has_method("set_visual_fixture_rosters") \
+			or not GameConfig.set_visual_fixture_rosters(
+				fixture_descriptor["blue_roster"],
+				fixture_descriptor["red_roster"]
+			):
+		return false
 	GameConfig.simulation_seed = seed
 	_real_arena = arena_scene.instantiate()
 	_real_arena.name = "Arena"

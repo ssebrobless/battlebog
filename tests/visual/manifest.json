@@ -23,6 +23,122 @@
         "NEUTRAL+0",
         "NEUTRAL_END"
       ]
+    },
+    {
+      "id": "alligator_player_camera_attack",
+      "description": "Alligator Bite hit, whiff, and startup interruption from the player camera.",
+      "script": "res://scripts/test/visual/scenarios/alligator_player_camera_attack_scenario.gd",
+      "seed": 307,
+      "environment": "real_arena",
+      "evaluator_safe": true,
+      "capture_window": {
+        "anchor": "HIT_TEL",
+        "before_frames": 30,
+        "through": "SCENARIO_END"
+      },
+      "required_anchors": [
+        "HIT_TEL",
+        "HIT_ACTIVE",
+        "HIT_RECOVERY",
+        "HIT_END",
+        "WHIFF_TEL",
+        "WHIFF_ACTIVE",
+        "WHIFF_RECOVERY",
+        "WHIFF_END",
+        "INTERRUPT_TEL",
+        "INTERRUPT_APPLIED",
+        "INTERRUPT_RECOVERY",
+        "SCENARIO_END"
+      ]
+    },
+    {
+      "id": "alligator_shoreline_transition",
+      "description": "Alligator dry, mud, shallow, and deep presentation-band traversal.",
+      "script": "res://scripts/test/visual/scenarios/alligator_shoreline_transition_scenario.gd",
+      "seed": 307,
+      "environment": "real_arena",
+      "evaluator_safe": true,
+      "capture_window": {
+        "anchor": "DRY_START",
+        "before_frames": 0,
+        "through": "SCENARIO_END"
+      },
+      "required_anchors": [
+        "DRY_START",
+        "MUD_IN",
+        "SHALLOW_IN",
+        "DEEP_IN",
+        "SHALLOW_OUT",
+        "MUD_OUT",
+        "DRY_RETURN",
+        "SCENARIO_END"
+      ]
+    },
+    {
+      "id": "alligator_latch_death_roll",
+      "description": "Alligator deep-water Bite latch and Death Roll lifecycle.",
+      "script": "res://scripts/test/visual/scenarios/alligator_latch_death_roll_scenario.gd",
+      "seed": 307,
+      "environment": "real_arena",
+      "evaluator_safe": true,
+      "capture_window": {
+        "anchor": "BITE_TEL",
+        "before_frames": 30,
+        "through": "SCENARIO_END"
+      },
+      "required_anchors": [
+        "BITE_TEL",
+        "BITE_ACTIVE",
+        "LATCH_ATTACHED",
+        "ROLL_STARTUP",
+        "ROLL_CHANNEL",
+        "ROLL_EXIT",
+        "LATCH_RELEASED",
+        "SCENARIO_END"
+      ]
+    },
+    {
+      "id": "alligator_death_respawn",
+      "description": "Alligator startup death, stock countdown, and production respawn.",
+      "script": "res://scripts/test/visual/scenarios/alligator_death_respawn_scenario.gd",
+      "seed": 307,
+      "environment": "real_arena",
+      "evaluator_safe": true,
+      "capture_window": {
+        "anchor": "BITE_TEL",
+        "before_frames": 30,
+        "through": "SCENARIO_END"
+      },
+      "required_anchors": [
+        "BITE_TEL",
+        "LETHAL_DAMAGE",
+        "DEATH",
+        "RESPAWN",
+        "RESPAWN_SETTLED",
+        "SCENARIO_END"
+      ]
+    },
+    {
+      "id": "alligator_six_actor_density",
+      "description": "Six registered Alligators under deterministic active combat density.",
+      "script": "res://scripts/test/visual/scenarios/alligator_six_actor_density_scenario.gd",
+      "seed": 307,
+      "environment": "real_arena",
+      "evaluator_safe": true,
+      "capture_window": {
+        "anchor": "SPREAD",
+        "before_frames": 0,
+        "through": "SCENARIO_END"
+      },
+      "required_anchors": [
+        "SPREAD",
+        "CONVERGENCE",
+        "THREE_ATTACKS",
+        "PEAK_EFFECTS",
+        "REACQUIRE",
+        "AFTERMATH",
+        "SCENARIO_END"
+      ]
     }
   ]
 }
