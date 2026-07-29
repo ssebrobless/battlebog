@@ -41,7 +41,9 @@ func _draw() -> void:
 		draw_arc(center, radius + 4.0, 0.0, TAU, 44, team_ring, 1.5)
 	var preview_state := _preview_motion_state()
 	preview_state["origin"] = center
-	preview_state["walk_phase"] = Time.get_ticks_msec() * 0.004
+	var visual_time_msec := float(Time.get_ticks_msec())
+	preview_state["visual_time_msec"] = visual_time_msec
+	preview_state["walk_phase"] = visual_time_msec * 0.004
 	VisualStyle.draw_battle_creature(self, hero_id, team, radius, Vector2(0.0, -1.0), 0.0, 1.0, bool(preview_state.get("airborne_preview", false)), preview_state)
 
 func _process(_delta: float) -> void:

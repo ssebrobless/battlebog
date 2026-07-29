@@ -2,11 +2,25 @@ extends SceneTree
 
 const ScenarioCatalog := preload("res://scripts/test/visual/scenario_catalog.gd")
 const VisualManifest := preload("res://scripts/test/visual/visual_manifest.gd")
+const VisualStyle := preload("res://scripts/visual/visual_style.gd")
+const CreatureScript := preload("res://scripts/sim/creature.gd")
 const FIXTURE_SCENE := "res://scenes/test/VisualRegressionArena.tscn"
 const MANIFEST_PATH := "res://tests/visual/manifest.json"
 const SEMANTIC_SCHEMA_PATH := "res://tests/visual/semantic_capture.schema.json"
 
 var failures: Array[String] = []
+
+
+class VisualClockCreature extends CreatureScript:
+	func _tick_sim_body(_delta: float) -> void:
+		pass
+
+	func _cache_base_presentation_snapshot(_completed_tick: bool) -> void:
+		pass
+
+
+class VisualClockArena extends Node:
+	var simulation_tick := 0
 
 
 func _init() -> void:
@@ -15,6 +29,7 @@ func _init() -> void:
 	_check_semantic_schema()
 	_check_fixture_scene()
 	_check_runtime_contract_source()
+	_check_visual_clock_producer()
 	if failures.is_empty():
 		print("Battle Bog visual regression arena check passed.")
 		quit(0)
@@ -172,6 +187,50 @@ func _check_runtime_contract_source() -> void:
 			and neutral_source.contains("\"critical_regions_px\""),
 		"Real neutral scenario must apply InputFrame and export a Creature snapshot."
 	)
+	var visual_style_source := FileAccess.get_file_as_string(
+		"res://scripts/visual/visual_style.gd"
+	)
+	var creature_source := FileAccess.get_file_as_string("res://scripts/sim/creature.gd")
+	_expect(
+		is_equal_approx(
+			VisualStyle._visual_time_msec({"visual_time_msec": 125.0}),
+			125.0
+		) and is_zero_approx(VisualStyle._visual_time_msec({})),
+		"Visual style must honor an explicit deterministic visual clock."
+	)
+	_expect(
+		not visual_style_source.contains("Time.") \
+			and visual_style_source.contains("_visual_time_msec(anim)"),
+		"Procedural creature pulses must share the guarded visual clock helper."
+	)
+	_expect(
+		creature_source.contains("anim[\"visual_time_msec\"] = visual_time_msec") \
+			and not creature_source.contains("Time.get_ticks_msec()"),
+		"Arena creatures must render from simulation-derived visual time."
+	)
+
+
+func _check_visual_clock_producer() -> void:
+	var detached := VisualClockCreature.new()
+	detached.tick_sim(0.2)
+	detached.tick_sim(0.05)
+	_expect(
+		is_equal_approx(detached._visual_time_msec(), 250.0),
+		"Detached creature visual time must accumulate the supplied simulation delta."
+	)
+	detached.free()
+
+	var attached := VisualClockCreature.new()
+	var arena := VisualClockArena.new()
+	arena.simulation_tick = 90
+	attached.arena = arena
+	var expected_msec := 90.0 * 1000.0 / float(Engine.physics_ticks_per_second)
+	_expect(
+		is_equal_approx(attached._visual_time_msec(), expected_msec),
+		"Attached creature visual time must derive from the arena simulation tick."
+	)
+	attached.free()
+	arena.free()
 
 
 func _load_json_object(path: String) -> Dictionary:

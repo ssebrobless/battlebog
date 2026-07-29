@@ -309,7 +309,7 @@ static func _draw_open_region_outlines(canvas: CanvasItem, anim: Dictionary, vis
 	var regions: Array = anim.get("open_hurtbox_regions", [])
 	if regions.is_empty():
 		return
-	var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.006)
+	var pulse := 0.5 + 0.5 * sin(_visual_time_msec(anim) * 0.006)
 	for region_value in regions:
 		if typeof(region_value) != TYPE_DICTIONARY:
 			continue
@@ -338,6 +338,10 @@ static func _region_flash_color(region_mult: float) -> Color:
 	if region_mult < 0.95:
 		return Color(0.72, 0.88, 1.0)
 	return Color.WHITE
+
+
+static func _visual_time_msec(anim: Dictionary) -> float:
+	return float(anim.get("visual_time_msec", 0.0))
 
 # Snap out fast, HOLD the extended pose, then ease back — the hold is what
 # makes small creatures' attacks readable.
@@ -645,7 +649,7 @@ static func _base_frog(canvas: CanvasItem, radius: float, forward: Vector2, side
 			canvas.draw_arc(eye + forward * radius * 0.02, radius * 0.26, -0.25, PI + 0.25, 12, Color(0.94, 0.9, 0.42, 0.28), maxf(radius * 0.04, 1.0))
 
 	if bool(skin.get("call_sac", false)):
-		var sac_pulse := (sin(Time.get_ticks_msec() * 0.008) * 0.5 + 0.5) * 0.35
+		var sac_pulse := (sin(_visual_time_msec(anim) * 0.008) * 0.5 + 0.5) * 0.35
 		if chorus_hop:
 			sac_pulse += 0.28 * chorus_hop_intensity * (sin(walk_phase * 1.2) * 0.5 + 0.5)
 			var pulse_center := forward * radius * 0.88
@@ -1225,7 +1229,7 @@ static func _base_bird(canvas: CanvasItem, radius: float, forward: Vector2, side
 	if airborne:
 		# Extended flapping wings.
 		var flap_amp := (0.12 if owl_glide else 0.48 if kingfisher_dart else 0.35) + takeoff_flap_t * 0.26 + landing_flap_t * 0.16
-		var flap := sin(Time.get_ticks_msec() * 0.012 * wingbeat + walk_phase * perch_flutter) * flap_amp
+		var flap := sin(_visual_time_msec(anim) * 0.012 * wingbeat + walk_phase * perch_flutter) * flap_amp
 		for wing_side: float in [-1.0, 1.0]:
 			var glide_width := 0.52 * owl_glide_intensity if owl_glide else 0.0
 			var glide_forward := -0.18 * owl_glide_intensity if owl_glide else 0.0
@@ -1529,7 +1533,7 @@ static func _base_serpent(canvas: CanvasItem, radius: float, forward: Vector2, s
 	canvas.draw_circle(head, radius * 0.45, main)
 	canvas.draw_circle(head + side * radius * 0.18 + forward * radius * 0.16, maxf(radius * 0.07, 1.2), Color(0.85, 0.6, 0.1))
 	canvas.draw_circle(head - side * radius * 0.18 + forward * radius * 0.16, maxf(radius * 0.07, 1.2), Color(0.85, 0.6, 0.1))
-	if fmod(Time.get_ticks_msec() * 0.001, 1.6) < 0.25:
+	if fmod(_visual_time_msec(anim) * 0.001, 1.6) < 0.25:
 		var tongue_tip := head + forward * radius * 0.85
 		canvas.draw_line(head + forward * radius * 0.4, tongue_tip, Color(0.85, 0.2, 0.25), 1.5)
 		canvas.draw_line(tongue_tip, tongue_tip + forward.rotated(0.5) * radius * 0.15, Color(0.85, 0.2, 0.25), 1.5)
@@ -1941,7 +1945,7 @@ static func _base_swarm(canvas: CanvasItem, radius: float, forward: Vector2, sid
 		for lobe_side: float in [-1.0, 1.0]:
 			var lobe_center := side * lobe_side * radius * (0.32 + 0.08 * swarm_intensity) - forward * radius * 0.05
 			canvas.draw_circle(lobe_center, cloud_radius * 0.58, Color(swarm_dark.r, swarm_dark.g, swarm_dark.b, 0.14 + 0.04 * swarm_intensity + blood_ratio * 0.04))
-	var time_now := Time.get_ticks_msec() * 0.001
+	var time_now := _visual_time_msec(anim) * 0.001
 	for i in 12:
 		var orbit_angle := time_now * (1.2 + float(i % 4) * 0.35) + float(i) * TAU / 12.0
 		var trail_pull := -0.22 if trail_pose and i % 3 == 0 else (-0.1 * swarm_intensity if swarm_pose and i % 3 == 0 else 0.0)
@@ -1990,7 +1994,7 @@ static func _base_cluster(canvas: CanvasItem, radius: float, forward: Vector2, s
 			canvas.draw_circle(anchor_center - forward * radius * (0.2 + 0.06 * leech_motion_intensity), maxf(radius * (0.034 + 0.016 * leech_motion_intensity), 1.0), Color(dark.r, dark.g, dark.b, 0.18 + 0.08 * leech_motion_intensity))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 11
-	var wriggle := Time.get_ticks_msec() * 0.002 * tail_wave
+	var wriggle := _visual_time_msec(anim) * 0.002 * tail_wave
 	for i in 12:
 		var offset := Vector2(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.6, 0.6)) * radius * cluster_spread
 		var pulse := sin(walk_phase * 1.2 + float(i) * 0.75) * inchworm_pulse
@@ -2021,7 +2025,7 @@ static func _base_bug(canvas: CanvasItem, radius: float, forward: Vector2, side:
 	var dark: Color = skin.get("dark", main.darkened(0.35))
 	var glow: Color = skin.get("glow", Color(0.95, 0.9, 0.4))
 	var breathe := float(anim.get("glow_breathe", 0.0))
-	var pulse := sin(Time.get_ticks_msec() * 0.006 + walk_phase * 0.4) * 0.5 + 0.5
+	var pulse := sin(_visual_time_msec(anim) * 0.006 + walk_phase * 0.4) * 0.5 + 0.5
 	var wingbeat := float(anim.get("wingbeat_mult", 1.0))
 	var hover_pose := String(anim.get("creature_id", "")) == "firefly" and bool(anim.get("firefly_hover_pose", false))
 	var hover_intensity := clampf(float(anim.get("firefly_hover_intensity", 0.0)), 0.0, 1.25)

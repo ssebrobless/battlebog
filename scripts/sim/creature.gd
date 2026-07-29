@@ -180,6 +180,7 @@ var anim_attack_reach := 0.0
 var anim_attack_aim := Vector2.RIGHT
 var anim_windup_timer := 0.0
 var anim_windup_duration := 0.001
+var _visual_elapsed_msec := 0.0
 var render_landing_timer := 0.0
 var render_landing_impact := 0.0
 var render_last_hop_airborne := false
@@ -313,6 +314,7 @@ func apply_creature(next_creature_id: String) -> void:
 	_presentation_death_elapsed_sec = 0.0
 	_presentation_hit_region = &""
 	_presentation_hit_timer = 0.0
+	_visual_elapsed_msec = 0.0
 	kit = _make_kit()
 	if kit != null:
 		kit.setup(self)
@@ -358,6 +360,7 @@ func _process(delta: float) -> void:
 func tick_sim(delta: float) -> void:
 	if _primary_attack_simulation_tick() < 0:
 		_presentation_fallback_tick += 1
+		_visual_elapsed_msec += maxf(delta, 0.0) * 1000.0
 	_tick_sim_body(delta)
 	_cache_base_presentation_snapshot(true)
 
@@ -3218,10 +3221,12 @@ func _draw() -> void:
 		"flash_region_mult": render_flash_region_mult,
 		"shake_offset": shake_offset
 	})
+	var visual_time_msec := _visual_time_msec()
+	anim["visual_time_msec"] = visual_time_msec
 	anim.merge(get_render_motion_state(), true)
 	var draw_alpha := 0.4 if is_stealthed() else 1.0
 	if wrong_terrain_seconds > 0.0:
-		_draw_wrong_terrain_warning()
+		_draw_wrong_terrain_warning(visual_time_msec)
 	VisualStyle.draw_battle_creature(self, creature_id, team, body_radius, get_body_axis(), render_flash_timer / 0.1, draw_alpha, is_airborne() or state == CreatureStateScript.State.PERCHED, anim)
 	if arena != null and arena.get("player") == self:
 		VisualStyle.draw_aim_indicator(self, body_radius, last_aim_direction)
@@ -3240,10 +3245,21 @@ func _draw_meter(start: Vector2, width: float, ratio: float, color: Color) -> vo
 	draw_rect(Rect2(start, Vector2(width, 3.0)), Color(0.06, 0.06, 0.07))
 	draw_rect(Rect2(start, Vector2(width * ratio, 3.0)), color)
 
-func _draw_wrong_terrain_warning() -> void:
+func _visual_time_msec() -> float:
+	var simulation_tick := _primary_attack_simulation_tick()
+	if simulation_tick < 0:
+		return _visual_elapsed_msec
+	return (
+		float(simulation_tick)
+		* 1000.0
+		/ float(maxi(Engine.physics_ticks_per_second, 1))
+	)
+
+
+func _draw_wrong_terrain_warning(visual_time_msec: float) -> void:
 	var danger_t := clampf(wrong_terrain_seconds / WRONG_TERRAIN_GRACE_SEC, 0.0, 1.0)
 	var late := wrong_terrain_seconds > WRONG_TERRAIN_GRACE_SEC
-	var pulse := sin(Time.get_ticks_msec() * 0.012) * 0.5 + 0.5
+	var pulse := sin(visual_time_msec * 0.012) * 0.5 + 0.5
 	var color := Color(0.24, 0.72, 1.0, 0.26 + danger_t * 0.2)
 	if late:
 		color = Color(1.0, 0.25, 0.16, 0.46 + pulse * 0.18)
